@@ -128,6 +128,7 @@ local callInLists = {
 	"UnitCreated",
 	"UnitFinished",
 	"UnitReverseBuilt",
+	"UnitConstructionDecayed",
 	"UnitFromFactory",
 	"UnitDestroyed",
 	"RenderUnitDestroyed",
@@ -1581,6 +1582,19 @@ function gadgetHandler:UnitReverseBuilt(unitID, unitDefID, unitTeam)
 	for _, g in r_ipairs(self.UnitReverseBuiltList) do
 		g:UnitReverseBuilt(unitID, unitDefID, unitTeam)
 	end
+	return
+end
+
+function gadgetHandler:UnitConstructionDecayed(unitID, unitDefID, unitTeam, part)
+	for _, g in r_ipairs(self.UnitConstructionDecayedList) do
+		g:UnitConstructionDecayed(unitID, unitDefID, unitTeam, part)
+	end
+
+	Spring.Echo("UnitConstructionDecayed: ")
+	Spring.Echo("  unitID: " .. unitID)
+	Spring.Echo("  part: " .. part)
+	Spring.Echo("  metal refunded: " .. UnitDefs[unitDefID].metalCost * part)
+
 	return
 end
 

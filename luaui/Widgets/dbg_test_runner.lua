@@ -91,6 +91,7 @@ local function registerCallins(target, callback, callins)
 		'UnitFinished',
 		'UnitFromFactory',
 		'UnitReverseBuilt',
+		'UnitConstructionDecayed',
 		'UnitDestroyed',
 		'RenderUnitDestroyed',
 		'UnitTaken',

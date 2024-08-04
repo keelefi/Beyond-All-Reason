@@ -120,6 +120,12 @@ function gadget:UnitReverseBuilt(unitID, unitDefID, unitTeam)
 	if showcallins then addEvent(unitID, "UnitReverseBuilt") end
 end
 
+function gadget:UnitConstructionDecayed(unitID, unitDefID, unitTeam, part)
+	if enabledcallins.UnitConstructionDecayed == nil then return end
+	if printcallins then Spring.Echo("g:UnitConstructionDecayed",unitID, unitDefID and UnitDefs[unitDefID].name, unitTeam, part) end
+	if showcallins then addEvent(unitID, "UnitConstructionDecayed") end
+end
+
 function gadget:UnitDestroyedByTeam(unitID, unitDefID, unitTeam, attackerTeamID)
 	if enabledcallins.UnitDestroyedByTeam == nil then return end
 	if printcallins then Spring.Echo("g:UnitDestroyedByTeam",unitID, unitDefID and UnitDefs[unitDefID].name, unitTeam, attackerTeamID) end
@@ -339,6 +345,7 @@ local function togglegadget()
 			StockpileChanged  = true,
 			RenderUnitDestroyed  = true,
 			UnitReverseBuilt  = true,
+			UnitConstructionDecayed = true,
 			UnitUnitCollision  = true,
 			UnitFeatureCollision  = true,
 			FeatureCreated = true,
