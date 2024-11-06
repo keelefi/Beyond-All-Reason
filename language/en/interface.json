@@ -275,6 +275,8 @@
 			"factoryqueuemode_normal": "Queue Mode",
 			"factoryqueuemode_quota": "Quota Mode",
 			"factoryqueuemode_tooltip": "Queue: Build each queued unit once\nQuota: Maintain a minimum quota of each unit on the battlefield",
+			"setferry": "Set Ferry",
+			"setferry_tooltip": "Set ferry routes for transports",
 			"customOnOff": {
 				"lowTrajectory": "Low Trajectory",
 				"highTrajectory": "High Trajectory",
