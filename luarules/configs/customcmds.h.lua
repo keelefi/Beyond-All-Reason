@@ -12,6 +12,8 @@
 
 -- if you add a command, please order it by ID!
 
+CMD_SET_FERRY = 11000
+
 CMD_FACTORY_GUARD = 13921
 CMD_AREA_GUARD = 13922
 CMD_STOP_PRODUCTION = 13923

@@ -1057,6 +1057,8 @@ local function initializeTestEnvironment()
 		type = type,
 		unpack = unpack,
 		select = select,
+		rawget = rawget,
+		rawset = rawset,
 		Scenario = scenarioConfig,
 
 		Json = Json,
