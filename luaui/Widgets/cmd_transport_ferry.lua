@@ -30,6 +30,8 @@ local CMD_REMOVE = CMD.REMOVE
 local CMD_OPT_ALT = CMD.OPT_ALT
 local CMD_OPT_SHIFT = CMD.OPT_SHIFT
 
+local ROUTING_MAX_DEPTH = 64
+
 local circleSegments = 128
 local circleThickness = 6
 local glowRadiusCoefficient = -0.3
@@ -193,16 +195,34 @@ local function inCircle(x, z, circle)
     return distanceSquared < radiusSquared
 end
 
-local function getFerryDeparture(x, z)
+local function getFerryZone(x, z)
     for _,ferryRoute in ipairs(ferryRoutes) do
-        for _,departure in ipairs(ferryRoute.departures) do
-            if inCircle(x, z, departure) then
-                return ferryRoute, departure
+        for _,zone in ipairs(ferryRoute.zones) do
+            if inCircle(x, z, zone) then
+                return ferryRoute, zone
             end
         end
     end
 
     return nil, nil
+end
+
+local function checkOverlappingZone(x, z, radius)
+    local function checkOverlapping(zone)
+        local euclideanDistance = math.sqrt(math.pow(x-zone.x, 2) + math.pow(z-zone.z, 2))
+        local radiiSum = radius + zone.radius
+        return euclideanDistance < radiiSum
+    end
+
+    for _,ferryRoute in ipairs(ferryRoutes) do
+        for _,zone in ipairs(ferryRoute.zones) do
+            if checkOverlapping(zone) then
+                return true
+            end
+        end
+    end
+
+    return false
 end
 
 local function findClosestTransport(x, z, ferryRoute, remove)
@@ -239,12 +259,15 @@ local function findClosestDeparture(transportX, transportZ, ferryRoute)
 
     local closestRadiusSquared = -1
     local closestDeparture = nil
-    for _,departure in ipairs(ferryRoute.departures) do
-        local currentRadiusSquared = getDistanceSquared(departure)
+    for _,zone in ipairs(ferryRoute.zones) do
+        if zone ~= ferryRoute.destination then
+            local departure = zone
+            local currentRadiusSquared = getDistanceSquared(departure)
 
-        if (not closestDeparture) or (currentRadiusSquared < closestRadiusSquared) then
-            closestRadiusSquared = currentRadiusSquared
-            closestDeparture = departure
+            if (not closestDeparture) or (currentRadiusSquared < closestRadiusSquared) then
+                closestRadiusSquared = currentRadiusSquared
+                closestDeparture = departure
+            end
         end
     end
 
@@ -317,6 +340,116 @@ local function getLastMoveAverage(transportUnitIDs)
     return x, z
 end
 
+local function routingTableDiscoverZones(newZone)
+    local function recursePreviousZones(direction, currentZone)
+        newZone.routingTable[currentZone] = direction
+
+        for _,previousZone in ipairs(currentZone.previousZones) do
+            recursePreviousZones(direction, previousZone)
+        end
+    end
+
+    if newZone.nextZone then
+        local direction = newZone.nextZone
+        local currentZone = direction
+        while currentZone do
+            newZone.routingTable[currentZone] = direction
+            currentZone = currentZone.nextZone
+        end
+    end
+
+    for _,previousZone in ipairs(newZone.previousZones) do
+        recursePreviousZones(previousZone, previousZone)
+    end
+end
+
+local function routingTableAddNewEntry(newEntry, directionZone, currentZone, depth)
+    local newDepth = depth + 1
+    if newDepth > ROUTING_MAX_DEPTH then
+        -- we might have a loop, bail out
+        -- TODO: kill widget
+        return
+    end
+
+    currentZone.routingTable[newEntry] = directionZone
+
+    for _,previousZone in ipairs(currentZone.previousZones) do
+        if previousZone ~= directionZone then
+            routingTableAddNewEntry(newEntry, currentZone, previousZone, newDepth)
+        end
+    end
+
+    if currentZone.nextZone and (currentZone.nextZone ~= directionZone) then
+        routingTableAddNewEntry(newEntry, currentZone, currentZone.nextZone, newDepth)
+    end
+
+
+    --if directionForward then
+    --    for _,previousZone in ipairs(currentZone.previousZones) do
+    --        previousZone.routingTable[newEntry] = currentZone
+
+    --        routingTableAddNewEntry(newEntry, true, previousZone)
+    --    end
+    --else
+    --    local nextZone = currentZone.nextZone
+    --    if nextZone then
+    --        nextZone.routingTable[newEntry] = currentZone
+    --        routingTableAddNewEntry(newEntry, false, nextZone)
+    --    end
+    --end
+end
+
+local function addZone(ferryRoute, x, z, radius, afterZones, beforeZone)
+    local previousZones
+    if afterZones then
+        if afterZones.x then
+            -- it was a single zone
+            previousZones = { afterZones }
+        else
+            -- it's already a table
+            previousZones = afterZones
+        end
+    else
+        previousZones = {}
+    end
+
+    local newZone = {
+        x = x,
+        y = Spring.GetGroundHeight(x, z),
+        z = z,
+        radius = radius,
+
+        previousZones = previousZones,
+        nextZone = beforeZone,   -- note: this might be nil and that is fine
+        routingTable = {},
+
+        ferryRoute = ferryRoute,
+    }
+
+    if beforeZone then
+        table.insert(beforeZone.previousZones, newZone)
+
+        routingTableAddNewEntry(newZone, newZone, beforeZone, 0)
+    end
+
+    for _,afterZone in ipairs(previousZones) do
+        -- TODO: check if nextZone was already set. if yes, what then?
+
+        afterZone.nextZone = newZone
+
+        routingTableAddNewEntry(newZone, newZone, afterZone, 0)
+    end
+
+    routingTableDiscoverZones(newZone)
+
+    table.insert(ferryRoute.zones, newZone)
+
+    -- TODO: remove this variable, it is used only for debugging
+    newZone.id = #ferryRoute.zones
+
+    return newZone
+end
+
 local vogelModelCoefficient = 2.399963 -- Golden angle
 local vogelModelScale = 50
 local function initVogel(radius)
@@ -382,10 +515,17 @@ local function transportPickupPassenger(transportUnitID, passengerUnitID, ferryR
         -- move transport to departure
         local currentDeparture = findClosestDeparture(transportX, transportZ, ferryRoute)
 
+        local depth = 0
         while currentDeparture ~= departure do
             Spring.GiveOrderToUnit(transportUnitID, CMD_MOVE, { currentDeparture.x, currentDeparture.y + transportAboveUnit, currentDeparture.z }, CMD_OPT_SHIFT)
 
             currentDeparture = currentDeparture.routingTable[departure]
+
+            if depth > ROUTING_MAX_DEPTH then
+                -- TODO: kill widget
+                break
+            end
+            depth = depth + 1
         end
     end
 
@@ -404,6 +544,7 @@ local function transportDropPassenger(transportUnitID, departure, destination, p
 
     if departure then
         local currentZone = departure.routingTable[destination]
+        local depth = 0
         while currentZone ~= destination do
             local x = currentZone.x
             local y = currentZone.y
@@ -414,6 +555,12 @@ local function transportDropPassenger(transportUnitID, departure, destination, p
             Spring.GiveOrderToUnit(transportUnitID, CMD_MOVE, {x, y + transportAboveUnit, z}, CMD_OPT_SHIFT)
 
             currentZone = currentZone.routingTable[destination]
+
+            if depth > ROUTING_MAX_DEPTH then
+                -- TODO: kill widget
+                break
+            end
+            depth = depth + 1
         end
     end
 
@@ -423,6 +570,7 @@ end
 
 local function transportReturnToDeparture(transportUnitID, departure, destination)
     local currentZone = destination
+    local depth = 0
     while currentZone ~= departure do
         currentZone = currentZone.routingTable[departure]
 
@@ -433,27 +581,17 @@ local function transportReturnToDeparture(transportUnitID, departure, destinatio
         debugPrint("Transport move order (return): id - " .. tostring(transportUnitID) .. " [x: " .. tostring(x) .. ", z: " .. tostring(z) .. "]")
 
         Spring.GiveOrderToUnit(transportUnitID, CMD_MOVE, {x, y + transportAboveUnit, z}, CMD_OPT_SHIFT)
+
+        if depth > ROUTING_MAX_DEPTH then
+            -- TODO: kill widget
+            break
+        end
+        depth = depth + 1
     end
 end
 
 local function passengerEligibleForFerryRoute(ferryRoute, unitDefID)
     return isLightLandUnitDef[unitDefID] or (isHeavyLandUnitDef[unitDefID] and ferryRoute.hasHeavyTransports)
-end
-
-local function routingTablesAddNewEntry(newEntry, directionForward, currentZone)
-    if directionForward then
-        for _,previousZone in ipairs(currentZone.previousZones) do
-            previousZone.routingTable[newEntry] = currentZone
-
-            routingTablesAddNewEntry(newEntry, true, previousZone)
-        end
-    else
-        local nextZone = currentZone.nextZone
-        if nextZone then
-            nextZone.routingTable[newEntry] = currentZone
-            routingTablesAddNewEntry(newEntry, false, nextZone)
-        end
-    end
 end
 
 local function createFerryRoute(x, z, radius, shift)
@@ -484,7 +622,9 @@ local function createFerryRoute(x, z, radius, shift)
         --    state = initVogel(radius),
         --},
 
-        departures = {},
+        --departures = {},
+        zones = {},
+        destination = nil,
 
         serversReady = {},
         serversBusy = {},
@@ -501,39 +641,44 @@ local function createFerryRoute(x, z, radius, shift)
     }
     local newFerryRoute = ferryRoutes[#ferryRoutes]
 
-    newFerryRoute.departures[1] = {
-        x = departureX,
-        y = Spring.GetGroundHeight(departureX, departureZ),
-        z = departureZ,
-        radius = ferryDepartureRadius,
+    --newFerryRoute.departures[1] = {
+    --    x = departureX,
+    --    y = Spring.GetGroundHeight(departureX, departureZ),
+    --    z = departureZ,
+    --    radius = ferryDepartureRadius,
 
-        --passengersArriving = {},
-        --passengersWaiting = {},
+    --    --passengersArriving = {},
+    --    --passengersWaiting = {},
 
-        factoryRallies = {},
+    --    factoryRallies = {},
 
-        routingTable = {},
-        nextZone = nil,
-        previousZones = {},
+    --    routingTable = {},
+    --    nextZone = nil,
+    --    previousZones = {},
 
-        ferryRoute = newFerryRoute,
-    }
-    newFerryRoute.destination = {
-        x = x,
-        y = Spring.GetGroundHeight(x, z),
-        z = z,
-        radius = radius,
+    --    ferryRoute = newFerryRoute,
+    --}
+    local departure = addZone(newFerryRoute, departureX, departureZ, ferryDepartureRadius, nil, nil)
+    --table.insert(newFerryRoute.zones, departure)
+    --newFerryRoute.destination = {
+    --    x = x,
+    --    y = Spring.GetGroundHeight(x, z),
+    --    z = z,
+    --    radius = radius,
 
-        routingTable = { [newFerryRoute.departures[1]] = newFerryRoute.departures[1], },
-        nextZone = nil,
-        previousZones = { newFerryRoute.departures[1] },
+    --    routingTable = { [newFerryRoute.departures[1]] = newFerryRoute.departures[1], },
+    --    nextZone = nil,
+    --    previousZones = { newFerryRoute.departures[1] },
 
-        --previousZone = newFerryRoute.departures[1],
-    }
+    --    --previousZone = newFerryRoute.departures[1],
+    --}
+    local destination = addZone(newFerryRoute, x, z, radius, departure, nil)
+    --table.insert(newFerryRoute.zones, destination)
+    newFerryRoute.destination = destination
 
+    ----newFerryRoute.departures[1].nextZone = newFerryRoute.destination
+    --newFerryRoute.departures[1].routingTable[newFerryRoute.destination] = newFerryRoute.destination
     --newFerryRoute.departures[1].nextZone = newFerryRoute.destination
-    newFerryRoute.departures[1].routingTable[newFerryRoute.destination] = newFerryRoute.destination
-    newFerryRoute.departures[1].nextZone = newFerryRoute.destination
 
     if not shift then
         newFerryRoute.destination.state = initVogel(radius)
@@ -542,7 +687,8 @@ local function createFerryRoute(x, z, radius, shift)
     end
 
     for _,unitID in ipairs(selectedTransports) do
-        addTransportToFerryRoute(newFerryRoute, newFerryRoute.departures[1], unitID)
+        --addTransportToFerryRoute(newFerryRoute, newFerryRoute.departures[1], unitID)
+        addTransportToFerryRoute(newFerryRoute, departure, unitID)
     end
 
     -- TODO: check if shift was used. If not, have transport move to departure.
@@ -554,35 +700,38 @@ local function createFerryRoute(x, z, radius, shift)
     debugPrint("New route")
 end
 
-local function modifyFerryRoute(x, z, radius)
+local function modifyFerryRoute(ferryRoute, x, z, radius)
     -- TODO: make sure areas don't overlap
 
-    local ferryRoute = ferryRouteInConstruction
+    --local ferryRoute = ferryRouteInConstruction
 
-    local lastDeparture = ferryRoute.destination
-    lastDeparture.factoryRallies = {}
-    lastDeparture.ferryRoute = ferryRoute
-    table.insert(ferryRoute.departures, lastDeparture)
+    --local lastDeparture = ferryRoute.destination
+    --lastDeparture.factoryRallies = {}
+    --lastDeparture.ferryRoute = ferryRoute
+    --table.insert(ferryRoute.departures, lastDeparture)
 
-    local destinationRoutingTable = {}
-    for k,_ in pairs(lastDeparture.routingTable) do
-        destinationRoutingTable[k] = lastDeparture
-    end
-    destinationRoutingTable[lastDeparture] = lastDeparture
-    ferryRoute.destination = {
-        x = x,
-        y = Spring.GetGroundHeight(x, z),
-        z = z,
-        radius = radius,
+    --local destinationRoutingTable = {}
+    --for k,_ in pairs(lastDeparture.routingTable) do
+    --    destinationRoutingTable[k] = lastDeparture
+    --end
+    --destinationRoutingTable[lastDeparture] = lastDeparture
+    --ferryRoute.destination = {
+    --    x = x,
+    --    y = Spring.GetGroundHeight(x, z),
+    --    z = z,
+    --    radius = radius,
 
-        routingTable = destinationRoutingTable,
-        previousZones = { lastDeparture },
-        nextZone = nil,
-    }
+    --    routingTable = destinationRoutingTable,
+    --    previousZones = { lastDeparture },
+    --    nextZone = nil,
+    --}
+    local oldDestination = ferryRoute.destination
+    local newZone = addZone(ferryRoute, x, z, radius, oldDestination, nil)
+    ferryRoute.destination = newZone
 
-    lastDeparture.nextZone = ferryRoute.destination
-    lastDeparture.routingTable[ferryRoute.destination] = ferryRoute.destination
-    routingTablesAddNewEntry(ferryRoute.destination, true, lastDeparture)
+    --lastDeparture.nextZone = ferryRoute.destination
+    --lastDeparture.routingTable[ferryRoute.destination] = ferryRoute.destination
+    --routingTablesAddNewEntry(ferryRoute.destination, true, lastDeparture)
 end
 
 local function finishFerryRoute()
@@ -601,6 +750,12 @@ local function finishFerryRoute()
     updateDisplayList = true
 
     debugPrint("Finished building ferry route")
+end
+
+local function joinFerryRoute(ferryRouteOld, departureJoin)
+    local ferryRouteNew = ferryRouteInContruction
+
+    -- TODO: implementation
 end
 
 local function destroyFerryRoute(ferryRoute)
@@ -638,7 +793,10 @@ function addTransportToFerryRoute(ferryRoute, departure, unitID)
     else
         -- transport is empty, ready to serve immediately
         table.insert(ferryRoute.serversReady, unitID)
-        Spring.GiveOrderToUnit(unitID, CMD_MOVE, { ferryRoute.departures[1].x, ferryRoute.departures[1].y, ferryRoute.departures[1].z }, 0)
+        local transportX, _, transportZ = Spring.GetUnitPosition(unitID)
+        local departure = findClosestDeparture(transportX, transportZ, ferryRoute)
+        --Spring.GiveOrderToUnit(unitID, CMD_MOVE, { ferryRoute.departures[1].x, ferryRoute.departures[1].y, ferryRoute.departures[1].z }, 0)
+        Spring.GiveOrderToUnit(unitID, CMD_MOVE, { departure.x, departure.y, departure.z }, 0)
     end
 
     debugPrint("Transport " .. tostring(unitID) .. " added to route")
@@ -851,6 +1009,17 @@ end
 --    printCommand(unitID, cmdId, cmdParams, cmdOpts, cmdTag)
 --end
 
+local function printRoutingTables(ferryRoute)
+    Spring.Echo("Printing routing tables for " .. tostring(#ferryRoute.zones) .. " zones")
+    for id,zone in ipairs(ferryRoute.zones) do
+        Spring.Echo("Zone " .. tostring(id) .. " routingTable:")
+        for k,v in pairs(zone.routingTable) do
+            Spring.Echo("    " .. tostring(k.id) .. ": " .. tostring(v.id))
+        end
+    end
+    Spring.Echo("Printing done")
+end
+
 function widget:CommandNotify(id, params, options)
     if id == CMD_SET_FERRY then
         debugPrint("CMD_SET_FERRY, shift: " .. tostring(options.shift))
@@ -858,19 +1027,39 @@ function widget:CommandNotify(id, params, options)
 	    local cmdX, _, cmdZ, cmdRadius = params[1], params[2], params[3], params[4]
         cmdRadius = math.max(cmdRadius, ferryDestinationMinimumRadius)
 
-        if ferryRouteInConstruction then
-            modifyFerryRoute(cmdX, cmdZ, cmdRadius)
+        local ferryRoute, zone = getFerryZone(cmdX, cmdZ)
+        if not ferryRoute then
+            if checkOverlappingZone(cmdX, cmdZ, cmdRadius) then
+                -- TODO: error, can't make overlapping zones
+
+                return
+            end
+
+            if ferryRouteInConstruction then
+                modifyFerryRoute(ferryRouteInConstruction, cmdX, cmdZ, cmdRadius)
+            else
+                createFerryRoute(cmdX, cmdZ, cmdRadius, options.shift)
+            end
         else
-            createFerryRoute(cmdX, cmdZ, cmdRadius, options.shift)
+            if ferryRouteInConstruction then
+                joinFerryRoute(ferryRoute, zone)
+            else
+                -- TODO: modify zone size?
+            end
         end
 
         updateDisplayList = true
+
+        if ferryRouteInConstruction then
+            printRoutingTables(ferryRouteInConstruction)
+        end
     elseif id == CMD_MOVE then
         for _,unitID in ipairs(selectedUnits) do
             -- if move order is to ferry departure point
 	        local cmdX, _, cmdZ = params[1], params[2], params[3]
-            local ferryRoute, departure = getFerryDeparture(cmdX, cmdZ)
-            if ferryRoute then
+            local ferryRoute, zone = getFerryZone(cmdX, cmdZ)
+            if ferryRoute and (zone ~= ferryRoute.destination) then
+                local departure = zone
                 --local ferryRoute = ferryRoutes[ferryRouteIndex]
                 local unitDefID = Spring.GetUnitDefID(unitID)
                 local unitDef = UnitDefs[unitDefID]
@@ -939,10 +1128,10 @@ function widget:Update(dt)
     local pos = select(2, Spring.TraceScreenRay(mx, my, true))
 
     if pos then
-        local ferryRoute, departure = getFerryDeparture(pos[1], pos[3])
+        local ferryRoute, zone = getFerryZone(pos[1], pos[3])
 
-        if ferryRoute then
-            mouseOverDeparture = departure
+        if ferryRoute and (zone ~= ferryRoute.destination) then
+            mouseOverDeparture = zone
         end
     end
 
@@ -1436,8 +1625,45 @@ end
 
 local displayListFunction = function()
     for _,ferryRoute in ipairs(ferryRoutes) do
-        local lastDeparture = nil
-        for _,departure in ipairs(ferryRoute.departures) do
+        --local lastDeparture = nil
+        for _,zone in ipairs(ferryRoute.zones) do
+            if zone == ferryRoute.destination then
+                drawCircle(
+                    zone,
+                    circleSegments,
+                    circleThickness,
+                    destinationAreaColors,
+                    destinationAreaColorsGlow
+                )
+            else
+                local circleColors, circleColorsGlow
+                if zone == mouseOverDeparture then
+                    circleColors = departureAreaMouseOverColors
+                    circleColorsGlow = departureAreaMouseOverGlowColors
+                else
+                    circleColors = departureAreaColors
+                    circleColorsGlow = departureAreaGlowColors
+                end
+
+                drawCircle(
+                    zone,
+                    circleSegments,
+                    circleThickness,
+                    circleColors,
+                    circleColorsGlow
+                )
+            end
+
+            if zone.nextZone then
+                drawArrow(
+                    zone,
+                    zone.nextZone,
+                    arrowSize,
+                    arrowColor
+                )
+            end
+
+            --[[
             if lastDeparture then
                 -- draw arrow
                 drawArrow(
@@ -1467,8 +1693,10 @@ local displayListFunction = function()
             )
 
             lastDeparture = departure
+            --]]
         end
 
+        --[[
         drawArrow(
             lastDeparture,
             ferryRoute.destination,
@@ -1484,6 +1712,7 @@ local displayListFunction = function()
             destinationAreaColors,
             destinationAreaColorsGlow
         )
+        ]]
     end
 
     if debugLevel >= debugLevels.showVogel then
@@ -1518,7 +1747,7 @@ local function drawDebugText()
 
     for _,ferryRoute in ipairs(ferryRoutes) do
         textToDraw = textToDraw .. "\n\n" .. "Route Servers: " .. tostring(#ferryRoute.serversReady) .. " ready, " .. tostring(#ferryRoute.serversBusy) .. " busy"
-        textToDraw = textToDraw .. "\n" .. "Route Departures: " .. tostring(#ferryRoute.departures)
+        textToDraw = textToDraw .. "\n" .. "Route Departures: " .. tostring(#ferryRoute.zones-1)
         --textToDraw = textToDraw .. "\n" .. "Route Passengers Waiting: " .. tostring(#ferryRoute.passengersWaiting)
     end
 
