@@ -382,21 +382,6 @@ local function routingTableAddNewEntry(newEntry, directionZone, currentZone, dep
     if currentZone.nextZone and (currentZone.nextZone ~= directionZone) then
         routingTableAddNewEntry(newEntry, currentZone, currentZone.nextZone, newDepth)
     end
-
-
-    --if directionForward then
-    --    for _,previousZone in ipairs(currentZone.previousZones) do
-    --        previousZone.routingTable[newEntry] = currentZone
-
-    --        routingTableAddNewEntry(newEntry, true, previousZone)
-    --    end
-    --else
-    --    local nextZone = currentZone.nextZone
-    --    if nextZone then
-    --        nextZone.routingTable[newEntry] = currentZone
-    --        routingTableAddNewEntry(newEntry, false, nextZone)
-    --    end
-    --end
 end
 
 local function addZone(ferryRoute, x, z, radius, afterZones, beforeZone)
@@ -606,34 +591,13 @@ local function createFerryRoute(x, z, radius, shift)
     local heavyTransportsSelected = heavyTransportsIncluded(selectedTransports)
 
     ferryRoutes[#ferryRoutes+1] = {
-        --departure = {
-        --    x = departureX,
-        --    y = Spring.GetGroundHeight(departureX, departureZ),
-        --    z = departureZ,
-        --    radius = ferryDepartureRadius,
-        --},
-
-        --destination = {
-        --    x = x,
-        --    y = Spring.GetGroundHeight(x, z),
-        --    z = z,
-        --    radius = radius,
-
-        --    state = initVogel(radius),
-        --},
-
-        --departures = {},
         zones = {},
         destination = nil,
 
         serversReady = {},
         serversBusy = {},
 
-        --passengersArriving = {},
         passengersWaiting = fifo_new(),
-        --passengersWaiting = {},
-
-        --factoryRallies = {},
 
         hasHeavyTransports = heavyTransportsSelected,
 
@@ -641,44 +605,9 @@ local function createFerryRoute(x, z, radius, shift)
     }
     local newFerryRoute = ferryRoutes[#ferryRoutes]
 
-    --newFerryRoute.departures[1] = {
-    --    x = departureX,
-    --    y = Spring.GetGroundHeight(departureX, departureZ),
-    --    z = departureZ,
-    --    radius = ferryDepartureRadius,
-
-    --    --passengersArriving = {},
-    --    --passengersWaiting = {},
-
-    --    factoryRallies = {},
-
-    --    routingTable = {},
-    --    nextZone = nil,
-    --    previousZones = {},
-
-    --    ferryRoute = newFerryRoute,
-    --}
     local departure = addZone(newFerryRoute, departureX, departureZ, ferryDepartureRadius, nil, nil)
-    --table.insert(newFerryRoute.zones, departure)
-    --newFerryRoute.destination = {
-    --    x = x,
-    --    y = Spring.GetGroundHeight(x, z),
-    --    z = z,
-    --    radius = radius,
-
-    --    routingTable = { [newFerryRoute.departures[1]] = newFerryRoute.departures[1], },
-    --    nextZone = nil,
-    --    previousZones = { newFerryRoute.departures[1] },
-
-    --    --previousZone = newFerryRoute.departures[1],
-    --}
     local destination = addZone(newFerryRoute, x, z, radius, departure, nil)
-    --table.insert(newFerryRoute.zones, destination)
     newFerryRoute.destination = destination
-
-    ----newFerryRoute.departures[1].nextZone = newFerryRoute.destination
-    --newFerryRoute.departures[1].routingTable[newFerryRoute.destination] = newFerryRoute.destination
-    --newFerryRoute.departures[1].nextZone = newFerryRoute.destination
 
     if not shift then
         newFerryRoute.destination.state = initVogel(radius)
@@ -687,7 +616,6 @@ local function createFerryRoute(x, z, radius, shift)
     end
 
     for _,unitID in ipairs(selectedTransports) do
-        --addTransportToFerryRoute(newFerryRoute, newFerryRoute.departures[1], unitID)
         addTransportToFerryRoute(newFerryRoute, departure, unitID)
     end
 
@@ -703,35 +631,9 @@ end
 local function modifyFerryRoute(ferryRoute, x, z, radius)
     -- TODO: make sure areas don't overlap
 
-    --local ferryRoute = ferryRouteInConstruction
-
-    --local lastDeparture = ferryRoute.destination
-    --lastDeparture.factoryRallies = {}
-    --lastDeparture.ferryRoute = ferryRoute
-    --table.insert(ferryRoute.departures, lastDeparture)
-
-    --local destinationRoutingTable = {}
-    --for k,_ in pairs(lastDeparture.routingTable) do
-    --    destinationRoutingTable[k] = lastDeparture
-    --end
-    --destinationRoutingTable[lastDeparture] = lastDeparture
-    --ferryRoute.destination = {
-    --    x = x,
-    --    y = Spring.GetGroundHeight(x, z),
-    --    z = z,
-    --    radius = radius,
-
-    --    routingTable = destinationRoutingTable,
-    --    previousZones = { lastDeparture },
-    --    nextZone = nil,
-    --}
     local oldDestination = ferryRoute.destination
     local newZone = addZone(ferryRoute, x, z, radius, oldDestination, nil)
     ferryRoute.destination = newZone
-
-    --lastDeparture.nextZone = ferryRoute.destination
-    --lastDeparture.routingTable[ferryRoute.destination] = ferryRoute.destination
-    --routingTablesAddNewEntry(ferryRoute.destination, true, lastDeparture)
 end
 
 local function finishFerryRoute()
@@ -795,8 +697,7 @@ function addTransportToFerryRoute(ferryRoute, departure, unitID)
         table.insert(ferryRoute.serversReady, unitID)
         local transportX, _, transportZ = Spring.GetUnitPosition(unitID)
         local departure = findClosestDeparture(transportX, transportZ, ferryRoute)
-        --Spring.GiveOrderToUnit(unitID, CMD_MOVE, { ferryRoute.departures[1].x, ferryRoute.departures[1].y, ferryRoute.departures[1].z }, 0)
-        Spring.GiveOrderToUnit(unitID, CMD_MOVE, { departure.x, departure.y, departure.z }, 0)
+        Spring.GiveOrderToUnit(unitID, CMD_MOVE, { departure.x, departure.y, departure.z }, CMD_OPT_SHIFT)
     end
 
     debugPrint("Transport " .. tostring(unitID) .. " added to route")
@@ -883,23 +784,6 @@ local function addPassengerToDeparture(departure, unitID)
     end
 
     return true
-
-    --if myPassengers[unitID] then
-    --    if myPassengers[unitID] == departure then
-    --        debugPrint("Adding passenger " .. tostring(unitID) .. " failed: Passenger was already added to the departure")
-    --        return false
-    --    end
-
-    --    removePassengerFromDeparture(myPassengers[departure], unitID)
-    --end
-
-    --table.insert(departure.passengersArriving, unitID)
-
-    --debugPrint("Passenger " .. tostring(unitID) .. " added to departure")
-
-    --myPassengers[unitID] = departure
-
-    --return true
 end
 
 function removePassengerFromFerryRoute(passengerUnitID)
@@ -1100,7 +984,6 @@ function widget:KeyRelease(key)
     local keyShift = 0x130
     if key == keyShift then
         finishFerryRoute()
-        --ferryRouteInConstruction = nil
     end
 end
 
@@ -1159,59 +1042,10 @@ function widget:GameFrame(frameNum)
     for _,ferryRoute in ipairs(ferryRoutes) do
         while (#ferryRoute.serversReady > 0) and (not fifo_isEmpty(ferryRoute.passengersWaiting)) do
             local passengerUnitID, departure = fifo_pop(ferryRoute.passengersWaiting)
-        --while (#ferryRoute.serversReady > 0) and (#ferryRoute.passengersWaiting > 0) do
-        --    local passengerUnitID, departure = unpack(table.remove(ferryRoute.passengersWaiting, 1))
             local unitX, unitY, unitZ = Spring.GetUnitPosition(passengerUnitID)
             local transportUnitID = findClosestTransport(unitX, unitZ, ferryRoute, true)
             ferryRoute.serversBusy[transportUnitID] = { passengerUnitID, departure }
             transportPickupPassenger(transportUnitID, passengerUnitID, ferryRoute, departure)
-
-        --if #ferryRoute.serversReady > 0 then
-        --    for _,departure in ipairs(ferryRoute.departures) do
-                --if checkGotReady then
-                --    local i = 1
-                --    while i <= #departure.passengersArriving do
-                --        local unitID = departure.passengersArriving[i]
-
-                --        local unitX, _, unitZ = Spring.GetUnitPosition(unitID)
-
-                --        if inCircle(unitX, unitZ, departure) then
-                --            table.remove(departure.passengersArriving, i)
-                --            table.insert(departure.passengersWaiting, unitID)
-
-                --            Spring.GiveOrderToUnit(unitID, CMD_STOP, {}, 0)
-
-                --            debugPrint("passenger arrived and is added to waiting: " .. tostring(unitID))
-
-                --            -- note: i is not incremented when item is removed
-                --        else
-                --            i = i + 1
-                --        end
-                --    end
-                --end
-
-        --        while (#ferryRoute.serversReady > 0) and (#departure.passengersWaiting > 0) do
-        --            local passengerUnitID = table.remove(departure.passengersWaiting)
-        --            local unitX, unitY, unitZ = Spring.GetUnitPosition(passengerUnitID)
-        --            local transportUnitID = findClosestTransport(unitX, unitZ, ferryRoute, true)
-        --            ferryRoute.serversBusy[transportUnitID] = { passengerUnitID, departure }
-        --            transportPickupPassenger(transportUnitID, passengerUnitID, ferryRoute, departure)
-
-                    --debugPrint("passenger selected: " .. tostring(passengerUnitID))
-                    --debugPrint("transport selected: " .. tostring(transportUnitID))
-                    --Spring.GiveOrderToUnit(transportUnitID, CMD_MOVE, { unitX, unitY + transportAboveUnit, unitZ }, 0)
-                    --Spring.GiveOrderToUnit(transportUnitID, CMD_LOAD_UNITS, { passengerUnitID }, CMD_OPT_SHIFT)
-
-                    --transportDropPassenger(transportUnitID, departure, ferryRoute.destination, passengerUnitID)
-
-                    -- TODO: move to first?
-                    --Spring.GiveOrderToUnit(transportUnitID, CMD_MOVE, { departure.x, departure.y, departure.z }, CMD_OPT_SHIFT)
-                    --transportReturnToDeparture(transportUnitID, departure, ferryRoute.destination)
-
-                    --printCommandQueueGameFrame = frameNum + 5
-                    --printCommandQueueUnitID = transportUnitID
-        --        end
-        --    end
         end
     end
 end
@@ -1290,79 +1124,7 @@ function widget:UnitUnloaded(unitID, unitDefID, unitTeam, transportID, transport
 
         transportReturnToDeparture(transportID, departure, ferryRoute.destination)
     end
-
-    --if transportTeam == myTeam then
-    --    for _,ferryRoute in ipairs(ferryRoutes) do
-    --        local i = 1
-    --        while i <= #ferryRoute.serversBusy do
-    --            local serverID = ferryRoute.serversBusy[i][1]
-    --            if serverID ~= transportID then
-    --                i = i + 1
-    --            else
-    --                local transporteeArray = Spring.GetUnitIsTransporting(serverID)
-    --                if transporteeArray and (#transporteeArray == 0) then
-    --                    local departure = ferryRoute.serversBusy[i][3]
-
-    --                    table.remove(ferryRoute.serversBusy, i)
-    --                    table.insert(ferryRoute.serversReady, serverID)
-    --                    debugPrint("transport is ready: " .. tostring(serverID))
-
-    --                    transportReturnToDeparture(transportID, departure, ferryRoute.destination)
-    --                end
-    --                -- TODO: what to do if the transport is not empty?
-    --                return
-    --            end
-    --        end
-    --    end
-    --end
 end
-
---function widget:UnitDestroyed(unitID, unitDefID, unitTeam)
---    if unitTeam == myTeam then
---        local ferryRoute = myFerries[unitID]
---        local departure = myPassengers[unitID]
---
---        if myPassengerDeparture then
---            if not table.removeFirst(myPassengerDeparture.passengersArriving, unitID) then
---                table.removeFirst(myPassengerDeparture.passengersWaiting, unitID)
---            end
---            return
---        end
---
---        if myFerry or myPassengerDeparture then
---            for _,ferryRoute in ipairs(ferryRoutes) do
---                if myFerry then
---                    for serverIndex,serverID in ipairs(ferryRoute.serversReady) do
---                        if serverID == unitID then
---                            table.remove(ferryRoute.serversReady, serverIndex)
---                            break
---                        end
---                    end
---                    local i = 1
---                    while i <= #ferryRoute.serversBusy do
---                        local serverID = ferryRoute.serversBusy[i][1]
---                        local passengerWaiting = ferryRoute.serversBusy[i][2]
---                        if serverID == unitID then
---                            table.remove(ferryRoute.serversBusy, serverIndex)
---
---                            if not Spring.GetUnitIsDead(passengerWaiting) then
---                                -- TODO: find departure and add passenger there
---                                --table.insert(ferryRoute.passengersWaiting, passengerWaiting)
---                            end
---
---                            break
---                        end
---                    end
---
---                    -- TODO: check if ferryRoute is without any servers left
---
---                    return
---                else -- myPassenger is true
---                end
---            end
---        end
---    end
---end
 
 function widget:MetaUnitAdded(unitID, unitDefID, unitTeam)
     if unitTeam == myTeam then
@@ -1662,57 +1424,7 @@ local displayListFunction = function()
                     arrowColor
                 )
             end
-
-            --[[
-            if lastDeparture then
-                -- draw arrow
-                drawArrow(
-                    lastDeparture,
-                    departure,
-                    arrowSize,
-                    arrowColor
-                )
-            end
-
-            -- draw departure area
-            local circleColors, circleColorsGlow
-            if departure == mouseOverDeparture then
-                circleColors = departureAreaMouseOverColors
-                circleColorsGlow = departureAreaMouseOverGlowColors
-            else
-                circleColors = departureAreaColors
-                circleColorsGlow = departureAreaGlowColors
-            end
-
-            drawCircle(
-                departure,
-                circleSegments,
-                circleThickness,
-                circleColors,
-                circleColorsGlow
-            )
-
-            lastDeparture = departure
-            --]]
         end
-
-        --[[
-        drawArrow(
-            lastDeparture,
-            ferryRoute.destination,
-            arrowSize,
-            arrowColor
-        )
-
-        -- draw destination area
-        drawCircle(
-            ferryRoute.destination,
-            circleSegments,
-            circleThickness,
-            destinationAreaColors,
-            destinationAreaColorsGlow
-        )
-        ]]
     end
 
     if debugLevel >= debugLevels.showVogel then
