@@ -340,26 +340,47 @@ local function getLastMoveAverage(transportUnitIDs)
     return x, z
 end
 
+-- discover zones from the point of view of the new zone
 local function routingTableDiscoverZones(newZone)
-    local function recursePreviousZones(direction, currentZone)
+    local function recursePreviousZones(direction, currentZone, depth)
+        local newDepth = depth + 1
+        if newDepth > ROUTING_MAX_DEPTH then
+            -- TODO: kill widget
+            return
+        end
+
         newZone.routingTable[currentZone] = direction
 
         for _,previousZone in ipairs(currentZone.previousZones) do
-            recursePreviousZones(direction, previousZone)
+            recursePreviousZones(direction, previousZone, newDepth)
         end
     end
 
     if newZone.nextZone then
         local direction = newZone.nextZone
         local currentZone = direction
+        local depth = 0
         while currentZone do
             newZone.routingTable[currentZone] = direction
+
+            for _,previousZone in ipairs(currentZone.previousZones) do
+                if (previousZone ~= newZone) and (not newZone.routingTable[previousZone]) then
+                    recursePreviousZones(direction, previousZone, 0)
+                end
+            end
+
             currentZone = currentZone.nextZone
+
+            depth = depth + 1
+            if depth > ROUTING_MAX_DEPTH then
+                -- TODO: kill widget
+                return
+            end
         end
     end
 
     for _,previousZone in ipairs(newZone.previousZones) do
-        recursePreviousZones(previousZone, previousZone)
+        recursePreviousZones(previousZone, previousZone, 0)
     end
 end
 
@@ -425,12 +446,12 @@ local function addZone(ferryRoute, x, z, radius, afterZones, beforeZone)
         routingTableAddNewEntry(newZone, newZone, afterZone, 0)
     end
 
+    -- TODO: remove this variable, it is used only for debugging
+    newZone.id = #ferryRoute.zones
+
     routingTableDiscoverZones(newZone)
 
     table.insert(ferryRoute.zones, newZone)
-
-    -- TODO: remove this variable, it is used only for debugging
-    newZone.id = #ferryRoute.zones
 
     return newZone
 end
@@ -506,11 +527,11 @@ local function transportPickupPassenger(transportUnitID, passengerUnitID, ferryR
 
             currentDeparture = currentDeparture.routingTable[departure]
 
+            depth = depth + 1
             if depth > ROUTING_MAX_DEPTH then
                 -- TODO: kill widget
-                break
+                return
             end
-            depth = depth + 1
         end
     end
 
@@ -541,11 +562,11 @@ local function transportDropPassenger(transportUnitID, departure, destination, p
 
             currentZone = currentZone.routingTable[destination]
 
+            depth = depth + 1
             if depth > ROUTING_MAX_DEPTH then
                 -- TODO: kill widget
-                break
+                return
             end
-            depth = depth + 1
         end
     end
 
@@ -567,11 +588,11 @@ local function transportReturnToDeparture(transportUnitID, departure, destinatio
 
         Spring.GiveOrderToUnit(transportUnitID, CMD_MOVE, {x, y + transportAboveUnit, z}, CMD_OPT_SHIFT)
 
+        depth = depth + 1
         if depth > ROUTING_MAX_DEPTH then
             -- TODO: kill widget
-            break
+            return
         end
-        depth = depth + 1
     end
 end
 
@@ -616,7 +637,7 @@ local function createFerryRoute(x, z, radius, shift)
     end
 
     for _,unitID in ipairs(selectedTransports) do
-        addTransportToFerryRoute(newFerryRoute, departure, unitID)
+        addTransportToFerryRoute(newFerryRoute, departure, unitID, true)
     end
 
     -- TODO: check if shift was used. If not, have transport move to departure.
@@ -654,19 +675,47 @@ local function finishFerryRoute()
     debugPrint("Finished building ferry route")
 end
 
-local function joinFerryRoute(ferryRouteOld, departureJoin)
-    local ferryRouteNew = ferryRouteInContruction
-
-    -- TODO: implementation
-end
-
 local function destroyFerryRoute(ferryRoute)
     table.removeFirst(ferryRoutes, ferryRoute)
 
     updateDisplayList = true
 end
 
-function addTransportToFerryRoute(ferryRoute, departure, unitID)
+local function joinFerryRoute(ferryRouteOld, departureJoin)
+    local function addPreviousZones(currentZone, zoneToCopy, depth)
+        local newDepth = depth + 1
+        if newDepth > ROUTING_MAX_DEPTH then
+            -- TODO: crash widget
+            return
+        end
+
+        for _,previousZone in ipairs(zoneToCopy.previousZones) do
+            local newZone = addZone(ferryRouteOld, previousZone.x, previousZone.z, previousZone.radius, nil, currentZone)
+
+            addPreviousZones(newZone, previousZone, newDepth)
+        end
+    end
+
+    local ferryRouteNew = ferryRouteInConstruction
+
+    local currentZone = ferryRouteNew.destination
+    local newZone = addZone(ferryRouteOld, currentZone.x, currentZone.z, currentZone.radius, nil, departureJoin)
+    addPreviousZones(newZone, currentZone, 0)
+
+    --for _,serverReady in ipairs(ferryRouteNew.serversReady) do
+    --    table.insert(ferryRouteOld.serversReady, serverReady)
+    --end
+    for _,serverReady in ipairs(ferryRouteNew.serversReady) do
+        --removeTransportFromFerryRoute(ferryRouteNew, serverReady)
+        addTransportToFerryRoute(ferryRouteOld, nil, serverReady, false)
+    end
+    -- TODO: move busy servers to new ferry route
+    -- TODO: move passengers to new ferry route
+
+    destroyFerryRoute(ferryRouteNew)
+end
+
+function addTransportToFerryRoute(ferryRoute, departure, unitID, removeFromOld)
     debugPrint("addTransportToFerryRoute: unitID " .. tostring(unitID))
 
     if myFerries[unitID] then
@@ -675,7 +724,9 @@ function addTransportToFerryRoute(ferryRoute, departure, unitID)
             return false
         end
 
-        removeTransportFromFerryRoute(myFerries[unitID], unitID)
+        if removeFromOld then
+            removeTransportFromFerryRoute(myFerries[unitID], unitID)
+        end
     end
 
     local transporteeArray = Spring.GetUnitIsTransporting(unitID)
@@ -697,6 +748,7 @@ function addTransportToFerryRoute(ferryRoute, departure, unitID)
         table.insert(ferryRoute.serversReady, unitID)
         local transportX, _, transportZ = Spring.GetUnitPosition(unitID)
         local departure = findClosestDeparture(transportX, transportZ, ferryRoute)
+        -- TODO: figure out if the move command to departure is already queued (overlapping move command is a cancel)
         Spring.GiveOrderToUnit(unitID, CMD_MOVE, { departure.x, departure.y, departure.z }, CMD_OPT_SHIFT)
     end
 
@@ -894,14 +946,14 @@ end
 --end
 
 local function printRoutingTables(ferryRoute)
-    Spring.Echo("Printing routing tables for " .. tostring(#ferryRoute.zones) .. " zones")
-    for id,zone in ipairs(ferryRoute.zones) do
-        Spring.Echo("Zone " .. tostring(id) .. " routingTable:")
+    debugPrint("Printing routing tables for " .. tostring(#ferryRoute.zones) .. " zones")
+    for _,zone in ipairs(ferryRoute.zones) do
+        debugPrint("Zone " .. tostring(zone.id) .. " routingTable:")
         for k,v in pairs(zone.routingTable) do
-            Spring.Echo("    " .. tostring(k.id) .. ": " .. tostring(v.id))
+            debugPrint("    " .. tostring(k.id) .. ": " .. tostring(v.id))
         end
     end
-    Spring.Echo("Printing done")
+    debugPrint("Printing done")
 end
 
 function widget:CommandNotify(id, params, options)
@@ -927,6 +979,8 @@ function widget:CommandNotify(id, params, options)
         else
             if ferryRouteInConstruction then
                 joinFerryRoute(ferryRoute, zone)
+                ferryRouteInConstruction = nil
+                printRoutingTables(ferryRoute)
             else
                 -- TODO: modify zone size?
             end
@@ -954,7 +1008,7 @@ function widget:CommandNotify(id, params, options)
                 -- if transport
                 elseif myTransports[unitID] then
                     -- add transport to ferry route
-                    addTransportToFerryRoute(ferryRoute, departure, unitID)
+                    addTransportToFerryRoute(ferryRoute, departure, unitID, true)
                 -- if land factory
                 elseif unitDef.isFactory then   -- TODO: check if factory produces land units
                     addFactoryRallyToDeparture(departure, unitID)
@@ -1327,7 +1381,7 @@ local function drawCircle(position, segments, thickness, colors, colorsGlow)
 end
 
 local function drawVogelPoint(x, y, z, r, color)
-	local function drawFilledCircle(x, y, z, r, s, color)
+	local function drawFilledCircle(x, y, z, r, s)
         -- origo
         gl.Vertex(x, y, z)
 
@@ -1345,14 +1399,15 @@ local function drawVogelPoint(x, y, z, r, color)
 
     local segments = 36
 
+    gl.Color(color)
+
     gl.BeginEnd(
         GL.TRIANGLE_FAN, drawFilledCircle,
         x,
         y,
         z,
         r,
-        segments,
-        color
+        segments
     )
 end
 
