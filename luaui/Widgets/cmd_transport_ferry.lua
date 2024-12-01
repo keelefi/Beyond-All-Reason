@@ -271,6 +271,10 @@ local function findClosestDeparture(transportX, transportZ, ferryRoute)
         end
     end
 
+    if not closestDeparture then
+        closestDeparture = ferryRoute.destination
+    end
+
     return closestDeparture
 end
 
@@ -600,7 +604,7 @@ local function passengerEligibleForFerryRoute(ferryRoute, unitDefID)
     return isLightLandUnitDef[unitDefID] or (isHeavyLandUnitDef[unitDefID] and ferryRoute.hasHeavyTransports)
 end
 
-local function createFerryRoute(x, z, radius, shift)
+local function createFerryRoute(x, z, radius, shift, createDestination)
     -- TODO: do we need to remove transports from their earlier routes?
 
     -- TODO: do we need to check if a route has no transport and should be removed?
@@ -627,10 +631,15 @@ local function createFerryRoute(x, z, radius, shift)
     local newFerryRoute = ferryRoutes[#ferryRoutes]
 
     local departure = addZone(newFerryRoute, departureX, departureZ, ferryDepartureRadius, nil, nil)
-    local destination = addZone(newFerryRoute, x, z, radius, departure, nil)
-    newFerryRoute.destination = destination
 
-    if not shift then
+    if createDestination then
+        local destination = addZone(newFerryRoute, x, z, radius, departure, nil)
+        newFerryRoute.destination = destination
+    else
+        newFerryRoute.destination = departure
+    end
+
+    if not shift and not createDestination then
         newFerryRoute.destination.state = initVogel(radius)
     else
         ferryRouteInConstruction = newFerryRoute
@@ -647,6 +656,8 @@ local function createFerryRoute(x, z, radius, shift)
     -- TODO: have units with move order to departure area become passengers
 
     debugPrint("New route")
+
+    return newFerryRoute
 end
 
 local function modifyFerryRoute(ferryRoute, x, z, radius)
@@ -681,7 +692,7 @@ local function destroyFerryRoute(ferryRoute)
     updateDisplayList = true
 end
 
-local function joinFerryRoute(ferryRouteOld, departureJoin)
+local function joinFerryRoute(ferryRouteOld, ferryRouteNew, departureJoin)
     local function addPreviousZones(currentZone, zoneToCopy, depth)
         local newDepth = depth + 1
         if newDepth > ROUTING_MAX_DEPTH then
@@ -695,8 +706,6 @@ local function joinFerryRoute(ferryRouteOld, departureJoin)
             addPreviousZones(newZone, previousZone, newDepth)
         end
     end
-
-    local ferryRouteNew = ferryRouteInConstruction
 
     local currentZone = ferryRouteNew.destination
     local newZone = addZone(ferryRouteOld, currentZone.x, currentZone.z, currentZone.radius, nil, departureJoin)
@@ -974,16 +983,16 @@ function widget:CommandNotify(id, params, options)
             if ferryRouteInConstruction then
                 modifyFerryRoute(ferryRouteInConstruction, cmdX, cmdZ, cmdRadius)
             else
-                createFerryRoute(cmdX, cmdZ, cmdRadius, options.shift)
+                createFerryRoute(cmdX, cmdZ, cmdRadius, options.shift, true)
             end
         else
-            if ferryRouteInConstruction then
-                joinFerryRoute(ferryRoute, zone)
-                ferryRouteInConstruction = nil
-                printRoutingTables(ferryRoute)
-            else
-                -- TODO: modify zone size?
+            local ferryRouteNew = ferryRouteInConstruction
+            if not ferryRouteNew then
+                ferryRouteNew = createFerryRoute(cmdX, cmdZ, cmdRadius, false, false)
             end
+            joinFerryRoute(ferryRoute, ferryRouteNew, zone)
+            ferryRouteInConstruction = nil
+            printRoutingTables(ferryRoute)
         end
 
         updateDisplayList = true
