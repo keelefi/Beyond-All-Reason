@@ -687,6 +687,8 @@ local function finishFerryRoute()
 end
 
 local function destroyFerryRoute(ferryRoute)
+    -- TODO: remove references to ferry route
+
     table.removeFirst(ferryRoutes, ferryRoute)
 
     updateDisplayList = true
@@ -966,6 +968,7 @@ local function printRoutingTables(ferryRoute)
 end
 
 function widget:CommandNotify(id, params, options)
+	selectedUnits = Spring.GetSelectedUnits()
     if id == CMD_SET_FERRY then
         debugPrint("CMD_SET_FERRY, shift: " .. tostring(options.shift))
         -- set ferry point destination where we clicked
