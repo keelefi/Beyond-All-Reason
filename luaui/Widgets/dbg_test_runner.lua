@@ -197,14 +197,6 @@ local function trackCallin(target, callinName, callbackFunction, mode)
 	callinState.callins[callinName] = mode
 end
 
-local function generateCountFunction(name)
-	local counts = callinState.counts
-	local countFunction = function()
-		counts[name] = counts[name] + 1
-	end
-	return countFunction
-end
-
 -- Hook callin
 -- Will register to count either predicate success or execution counts.
 -- predicate will be passed the callin arguments.
@@ -253,7 +245,9 @@ function registerCallin(name, predicate, target, depth)
 		end
 		callinState.buffer[name] = {}
 	else
-		countFunc = generateCountFunction(name)
+		countFunc = function()
+			counts[name] = counts[name] + 1
+		end
 	end
 
 	trackCallin(target, name, countFunc, mode)
@@ -262,33 +256,26 @@ end
 -- Pre-Hook callin
 -- Will start prerecording so registerCallin will have access to previous callin executions
 -- @string name Callin name
--- @func full Buffer all call arguments when true or just count number of executions
 -- @param target Object registering the callin, default: test_runner widget
 -- @number depth stack depth (normally for internal use)
-function startRecordingCallin(name, full, target, depth)
+function startRecordingCallin(name, target, depth)
 	local depth = depth + 1
 	if callinState.recording[name] then
 		error("[preRegisterCallin:" ..  name .. "] already pre-registered", depth)
 	elseif callinState.callins[name] then
 		error("[preRegisterCallin:" .. name .. "] already registered", depth)
 	end
-	local recorderFunc = false
-	if full then
-		-- create a fake 'predicate' to accumulate data until a real predicate is set.
-		local buffers = callinState.buffer
-		recorderFunc = function(...)
-			local buffer = buffers[name]
-			local args = {...}
-			buffer[#buffer+1] = args
-		end
-	else
-		recorderFunc = generateCountFunction(name)
+	-- create a fake 'predicate' to accumulate data until a real predicate is set.
+	local buffers = callinState.buffer
+	local recorderFunc = function(...)
+		local buffer = buffers[name]
+		local args = {...}
+		buffer[#buffer+1] = args
 	end
 
-	local mode = getMode(full)
-	callinState.recording[name] = mode
+	callinState.recording[name] = REGISTER_FULL
 
-	trackCallin(target, name, recorderFunc, mode)
+	trackCallin(target, name, recorderFunc, REGISTER_FULL)
 end
 
 function resumeRecordingCallin(name, target, depth)
