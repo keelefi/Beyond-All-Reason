@@ -187,6 +187,24 @@ local spyControls
 local REGISTER_COUNT = 0
 local REGISTER_FULL = 1
 
+local function getMode(hasPredicate)
+	return hasPredicate and REGISTER_FULL or REGISTER_COUNT
+end
+
+local function trackCallin(target, callinName, callbackFunction, mode)
+	target[callinName] = callbackFunction
+	widgetHandler:UpdateWidgetCallInRaw(callinName, widget)   -- TODO: should last parameter be widget or target?
+	callinState.callins[callinName] = mode
+end
+
+local function generateCountFunction(name)
+	local counts = callinState.counts
+	local countFunction = function()
+		counts[name] = counts[name] + 1
+	end
+	return countFunction
+end
+
 -- Hook callin
 -- Will register to count either predicate success or execution counts.
 -- predicate will be passed the callin arguments.
@@ -204,11 +222,11 @@ function registerCallin(name, predicate, target, depth)
 	if not callinState.unsafe and not callinState.recording[name] then
 		error("[registerCallin:" .. name .. "] need to call Test.expectCallin(\"" .. name .. "\") first", depth)
 	end
-	local mode = predicate and REGISTER_FULL or REGISTER_COUNT
+	local mode = getMode(predicate)
 	local prevMode = callinState.callins[name]
 	if not prevMode then
 		callinState.buffer[name] = {}
-	        callinState.counts[name] = 0
+		callinState.counts[name] = 0
 	elseif prevMode == REGISTER_COUNT and prevMode ~= mode then
 		error("[registerCallin:" .. name .. "] expecting countOnly but requesting full", depth)
 	end
@@ -235,15 +253,10 @@ function registerCallin(name, predicate, target, depth)
 		end
 		callinState.buffer[name] = {}
 	else
-		countFunc = function()
-			counts[name] = counts[name] + 1
-		end
+		countFunc = generateCountFunction(name)
 	end
 
-	-- register
-	target[name] = countFunc
-	widgetHandler:UpdateWidgetCallInRaw(name, widget)
-	callinState.callins[name] = mode
+	trackCallin(target, name, countFunc, mode)
 end
 
 -- Pre-Hook callin
@@ -268,9 +281,14 @@ function startRecordingCallin(name, full, target, depth)
 			local args = {...}
 			buffer[#buffer+1] = args
 		end
+	else
+		recorderFunc = generateCountFunction(name)
 	end
-	callinState.recording[name] = full and REGISTER_FULL or REGISTER_COUNT --need to set this before registerCallin
-	registerCallin(name, recorderFunc, target, depth)
+
+	local mode = getMode(full)
+	callinState.recording[name] = mode
+
+	trackCallin(target, name, recorderFunc, mode)
 end
 
 function resumeRecordingCallin(name, target, depth)
