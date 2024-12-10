@@ -61,7 +61,7 @@ local function assertHasFields(object, fields)
 end
 
 local delay = 5
-function test()
+test("Test Create Ferry Route", function ()
 	VFS.Include("luarules/configs/customcmds.h.lua")
 
 	widget = widgetHandler:FindWidget(widgetName)
@@ -188,4 +188,4 @@ function test()
 
 	--assert(#builderQueue == 1)
 	--assert(builderQueue[1].id == -blueprintUnitDefID)
-end
+end)

@@ -686,37 +686,46 @@ local function runTestInternal()
 	end
 
 	local setupOk, setupResult
-	if setup ~= nil then
-		log(LOG.DEBUG, "[runTestInternal.setup]")
-		setupOk, setupResult = Util.yieldable_pcall(setup)
-		log(LOG.DEBUG, "[runTestInternal.setup.done] " .. table.toString({
-			setupOk, setupResult
-		}))
-	else
-		log(LOG.DEBUG, "[runTestInternal.setup.skipped]")
-		setupOk = true
-	end
-
 	local testOk, testResult
-	if setupOk then
-		log(LOG.DEBUG, "[runTestInternal.test]")
-		testOk, testResult = Util.yieldable_pcall(test)
-		log(LOG.DEBUG, "[runTestInternal.test.done] " .. table.toString({
-			testOk, testResult
-		}))
-	end
-
-	-- always try to run cleanup
 	local cleanupOk, cleanupResult
-	if cleanup ~= nil then
-		log(LOG.DEBUG, "[runTestInternal.cleanup]")
-		cleanupOk, cleanupResult = Util.yieldable_pcall(cleanup)
-		log(LOG.DEBUG, "[runTestInternal.cleanup.done] " .. table.toString({
-			cleanupOk, cleanupResult
-		}))
-	else
-		log(LOG.DEBUG, "[runTestInternal.cleanup.skipped]")
-		cleanupOk = true
+	for _,test in ipairs(tests) do
+		local testTile = test[1]
+		local testFunction = test[2]
+
+		if setup ~= nil then
+			log(LOG.DEBUG, "[runTestInternal.setup]")
+			setupOk, setupResult = Util.yieldable_pcall(setup)
+			log(LOG.DEBUG, "[runTestInternal.setup.done] " .. table.toString({
+				setupOk, setupResult
+			}))
+		else
+			log(LOG.DEBUG, "[runTestInternal.setup.skipped]")
+			setupOk = true
+		end
+
+		if setupOk then
+			log(LOG.DEBUG, "[runTestInternal.test]")
+			testOk, testResult = Util.yieldable_pcall(testFunction)
+			log(LOG.DEBUG, "[runTestInternal.test.done] " .. table.toString({
+				testOk, testResult
+			}))
+		end
+
+		-- always try to run cleanup
+		if cleanup ~= nil then
+			log(LOG.DEBUG, "[runTestInternal.cleanup]")
+			cleanupOk, cleanupResult = Util.yieldable_pcall(cleanup)
+			log(LOG.DEBUG, "[runTestInternal.cleanup.done] " .. table.toString({
+				cleanupOk, cleanupResult
+			}))
+		else
+			log(LOG.DEBUG, "[runTestInternal.cleanup.skipped]")
+			cleanupOk = true
+		end
+
+		if (not setupOk) or (not testOk) or (not cleanupOk) then
+			break
+		end
 	end
 
 	if #initialWidgetActive > 0 then
@@ -746,10 +755,16 @@ local function runTestInternal()
 	return TestResults.TEST_RESULT.PASS
 end
 
+local function test(title, f)
+	table.insert(tests, { title, f })
+end
+
 local function initializeTestEnvironment()
 	local env = {
 		-- test framework
 		Test = Test,
+		tests = {},
+		test = test,
 		SyncedProxy = SyncedProxy,
 		SyncedRun = SyncedRun,
 		__runTestInternal = runTestInternal,
@@ -813,7 +828,7 @@ local function initializeTestEnvironment()
 	return env
 end
 
-local function loadTestFromFile(filename)
+local function loadTestsFromFile(filename)
 	if not VFS.FileExists(filename) then
 		return false, "missing file: " .. filename
 	end
@@ -831,6 +846,8 @@ local function loadTestFromFile(filename)
 
 	local testEnvironment = initializeTestEnvironment()
 
+	Spring.Echo("tests: " .. tostring(testEnvironment.tests))
+
 	setfenv(chunk, testEnvironment)
 
 	local success, err = pcall(chunk)
@@ -838,8 +855,8 @@ local function loadTestFromFile(filename)
 		return false, err
 	end
 
-	if testEnvironment.test == nil then
-		return false, "no test() function"
+	if #testEnvironment.tests == 0 then
+		return false, "no tests, add one with test()"
 	end
 
 	setfenv(testEnvironment.__runTestInternal, testEnvironment)
@@ -975,12 +992,12 @@ local function step()
 		activeTestState.label = testRunState.files[testRunState.index].label
 		activeTestState.filename = testRunState.files[testRunState.index].filename
 
-		local success, envOrError = loadTestFromFile(activeTestState.filename)
+		local success, envOrError = loadTestsFromFile(activeTestState.filename)
 
 		if success then
 			log(LOG.DEBUG, "Initializing test: " .. activeTestState.label)
 			activeTestState.environment = envOrError
-			activeTestState.coroutine = coroutine.create(activeTestState.environment.__runTestInternal)
+			activeTestState.coroutine = coroutine.create(activeTestState.testEnvironment.__runTestInternal)
 			activeTestState.startFrame = Spring.GetGameFrame()
 
 			testTimer = Spring.GetTimer()
