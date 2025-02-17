@@ -139,7 +139,7 @@ local obj = {
 		local x = Game.mapSizeX / 2
 		local z = Game.mapSizeZ / 2
 		local y = Spring.GetGroundHeight(x, z)
-		local facing = 1
+		local facing = 1  -- TODO: make facing configurable
 
 		local unitDefName
 		if unitType then

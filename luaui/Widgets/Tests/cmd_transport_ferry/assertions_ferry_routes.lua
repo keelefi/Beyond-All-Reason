@@ -94,6 +94,45 @@ say:set("assertion.serversBusy.positive", "Expected ferryRoute has serversBusy:\
 say:set("assertion.serversBusy.negative", "Expected ferryRoute does not have serversBusy:\n%s")
 assert:register("assertion", "serversBusy", serversBusy, "assertion.serversBusy.positive", "assertion.serversBusy.negative")
 
+local function getPassengersWaiting(fifo)
+    local accumulator = 0
+
+    local currNode = fifo.head
+    while currNode do
+        accumulator = accumulator + 1
+        currNode = currNode.nextNode
+    end
+
+    return accumulator
+end
+local function lightPassengersWaiting(state, arguments)
+    local ferryRoute = rawget(state, FERRY_ROUTE_STATE_KEY)
+    assert(ferryRoute ~= nil, "no ferryRoute set, cannot check passengers waiting")
+
+    local expectedPassengersWaiting = arguments[1]
+
+    local actualPassengersWaiting = getPassengersWaiting(ferryRoute.lightPassengersWaiting)
+
+    if (expectedPassengersWaiting ~= nil) and (type(expectedPassengersWaiting) == "number") then
+        return expectedPassengersWaiting == actualPassengersWaiting
+    end
+
+    return actualPassengersWaiting > 0
+end
+local function heavyPassengersWaiting(state, arguments)
+    local ferryRoute = rawget(state, FERRY_ROUTE_STATE_KEY)
+    assert(ferryRoute ~= nil, "no ferryRoute set, cannot check passengers waiting")
+
+    local expectedPassengersWaiting = arguments[1]
+
+    local actualPassengersWaiting = getPassengersWaiting(ferryRoute.heavyPassengersWaiting)
+
+    if (expectedPassengersWaiting ~= nil) and (type(expectedPassengersWaiting) == "number") then
+        return expectedPassengersWaiting == actualPassengersWaiting
+    end
+
+    return actualPassengersWaiting > 0
+end
 local function passengersWaiting(state, arguments)
     local ferryRoute = rawget(state, FERRY_ROUTE_STATE_KEY)
     assert(ferryRoute ~= nil, "no ferryRoute set, cannot check passengers waiting")
@@ -101,13 +140,8 @@ local function passengersWaiting(state, arguments)
     local expectedPassengersWaiting = arguments[1]
 
     local actualPassengersWaiting = 0
-
-    local fifo = ferryRoute.passengersWaiting
-    local currNode = fifo.head
-    while currNode do
-        actualPassengersWaiting = actualPassengersWaiting + 1
-        currNode = currNode.nextNode
-    end
+    actualPassengersWaiting = actualPassengersWaiting + getPassengersWaiting(ferryRoute.lightPassengersWaiting)
+    actualPassengersWaiting = actualPassengersWaiting + getPassengersWaiting(ferryRoute.heavyPassengersWaiting)
 
     if (expectedPassengersWaiting ~= nil) and (type(expectedPassengersWaiting) == "number") then
         return expectedPassengersWaiting == actualPassengersWaiting
@@ -116,6 +150,12 @@ local function passengersWaiting(state, arguments)
     return actualPassengersWaiting > 0
 end
 
+say:set("assertion.lightPassengersWaiting.positive", "Expected ferryRoute has lightPassengersWaiting:\n%s")
+say:set("assertion.lightPassengersWaiting.negative", "Expected ferryRoute does not have lightPassengersWaiting:\n%s")
+assert:register("assertion", "lightPassengersWaiting", lightPassengersWaiting, "assertion.lightPassengersWaiting.positive", "assertion.lightPassengersWaiting.negative")
+say:set("assertion.heavyPassengersWaiting.positive", "Expected ferryRoute has heavyPassengersWaiting:\n%s")
+say:set("assertion.heavyPassengersWaiting.negative", "Expected ferryRoute does not have heavyPassengersWaiting:\n%s")
+assert:register("assertion", "heavyPassengersWaiting", heavyPassengersWaiting, "assertion.heavyPassengersWaiting.positive", "assertion.heavyPassengersWaiting.negative")
 say:set("assertion.passengersWaiting.positive", "Expected ferryRoute has passengersWaiting:\n%s")
 say:set("assertion.passengersWaiting.negative", "Expected ferryRoute does not have passengersWaiting:\n%s")
 assert:register("assertion", "passengersWaiting", passengersWaiting, "assertion.passengersWaiting.positive", "assertion.passengersWaiting.negative")

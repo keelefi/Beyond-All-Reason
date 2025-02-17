@@ -50,7 +50,7 @@ test("Transport Ferry Add One Passenger", function ()
 	assert.is.equal(1, #widget.ferryRoutes, "Creating a ferry route with set ferry adds one item to global table of ferry routes")
 
 	local newFerryRoute = widget.ferryRoutes[1]
-	assert.table_has_fields({"serversReady", "serversBusy", "passengersWaiting"}, newFerryRoute)
+	assert.table_has_fields({"serversReady", "serversBusy"}, newFerryRoute)
 
     assert.ferryRoute(1).has.serversReady(1, "Ferry route has one transport ready to serve passengers")
     assert.ferryRoute(1).has.serversBusy(0, "Ferry route has no transports busy serving passengers")
@@ -122,7 +122,7 @@ test("Transport Ferry Add One Passenger Arriving Before Transport", function ()
 	assert.is.equal(1, #widget.ferryRoutes, "Creating a ferry route with set ferry adds one item to global table of ferry routes")
 
 	local newFerryRoute = widget.ferryRoutes[1]
-	assert.table_has_fields({"serversReady", "serversBusy", "passengersWaiting"}, newFerryRoute)
+	assert.table_has_fields({"serversReady", "serversBusy"}, newFerryRoute)
 
     assert.ferryRoute(1).has.serversReady(1, "Ferry route has one transport ready to serve passengers")
     assert.ferryRoute(1).has.serversBusy(0, "Ferry route has no transports busy serving passengers")
@@ -198,7 +198,7 @@ test("Transport Ferry Add Two Passengers", function ()
 	assert.is.equal(1, #widget.ferryRoutes, "Creating a ferry route with set ferry adds one item to global table of ferry routes")
 
 	local newFerryRoute = widget.ferryRoutes[1]
-	assert.table_has_fields({"serversReady", "serversBusy", "passengersWaiting"}, newFerryRoute)
+	assert.table_has_fields({"serversReady", "serversBusy"}, newFerryRoute)
 
     assert.ferryRoute(1).has.serversReady(1, "Ferry route has one transport ready to serve passengers")
     assert.ferryRoute(1).has.serversBusy(0, "Ferry route has no transports busy serving passengers")
@@ -251,7 +251,7 @@ test("Transport Ferry Add Two Passengers", function ()
     Test.waitUntilCallinArgs("UnitUnloaded", { pawn1, nil, nil, nil, nil }, timeout)
 
     -- transport has dropped passenger and is enroute back to departure
-    assert.ferryRoute(1).has.serversReady(0, "Ferry route has no transports ready to serve passengers")
+    assert.ferryRoute(1).has.no.serversReady("Ferry route has no transports ready to serve passengers")
     assert.ferryRoute(1).has.serversBusy(1, "Ferry route has one transport busy serving passengers")
     assert.ferryRoute(1).has.no.passengersWaiting("Ferry route has no passengers waiting")
 
@@ -301,7 +301,7 @@ test("Transport Ferry Add Two Passengers Second Passanger Leaves", function ()
 	assert.is.equal(1, #widget.ferryRoutes, "Creating a ferry route with set ferry adds one item to global table of ferry routes")
 
 	local newFerryRoute = widget.ferryRoutes[1]
-	assert.table_has_fields({"serversReady", "serversBusy", "passengersWaiting"}, newFerryRoute)
+	assert.table_has_fields({"serversReady", "serversBusy"}, newFerryRoute)
 
     assert.ferryRoute(1).has.serversReady(1, "Ferry route has one transport ready to serve passengers")
     assert.ferryRoute(1).has.serversBusy(0, "Ferry route has no transports busy serving passengers")
@@ -388,7 +388,7 @@ test("Transport Ferry Add Two Passengers Second Passanger Leaves When Transport 
 	assert.is.equal(1, #widget.ferryRoutes, "Creating a ferry route with set ferry adds one item to global table of ferry routes")
 
 	local newFerryRoute = widget.ferryRoutes[1]
-	assert.table_has_fields({"serversReady", "serversBusy", "passengersWaiting"}, newFerryRoute)
+	assert.table_has_fields({"serversReady", "serversBusy"}, newFerryRoute)
 
     assert.ferryRoute(1).has.serversReady(1, "Ferry route has one transport ready to serve passengers")
     assert.ferryRoute(1).has.serversBusy(0, "Ferry route has no transports busy serving passengers")
@@ -492,7 +492,7 @@ test("Transport Ferry Add Five Passengers With Two Transports Serving", function
 	assert.is.equal(1, #widget.ferryRoutes, "Creating a ferry route with set ferry adds one item to global table of ferry routes")
 
 	local newFerryRoute = widget.ferryRoutes[1]
-	assert.table_has_fields({"serversReady", "serversBusy", "passengersWaiting"}, newFerryRoute)
+	assert.table_has_fields({"serversReady", "serversBusy"}, newFerryRoute)
 
     assert.ferryRoute(1).has.serversReady(2, "Ferry route has two transports ready to serve passengers")
     assert.ferryRoute(1).has.serversBusy(0, "Ferry route has no transports busy serving passengers")

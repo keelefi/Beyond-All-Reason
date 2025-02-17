@@ -14,6 +14,8 @@ end
 VFS.Include("luarules/configs/customcmds.h.lua")
 
 --[[
+TODO: Use more "vogel points" for bigger units / bigger transports
+
 Feature ideas:
 - Resizing existing zones
 - Modifying ferry route with transport already in ferry route
@@ -79,23 +81,23 @@ local selectedUnits
 local myTeam = Spring.GetLocalTeamID()
 
 local isTransportDef = {}
-local isLightTransportDef = {}
-local isHeavyTransportDef = {}
-local isLightLandUnitDef = {}
-local isHeavyLandUnitDef = {}
+local lightTransportUnitDefID = {}
+local heavyTransportUnitDefID = {}
+local lightPassengerUnitDefID = {}
+local heavyPassengerUnitDefID = {}
 for unitDefID, unitDef in pairs(UnitDefs) do
 	if unitDef.isTransport and unitDef.canFly and unitDef.transportCapacity > 0 then
 		isTransportDef[unitDefID] = true
-        if unitDef.transportMass and unitDef.transportMass >= 750 then
-            isHeavyTransportDef[unitDefID] = true
+        if unitDef.transportMass and unitDef.transportMass > 750 then
+            heavyTransportUnitDefID[unitDefID] = true
         else
-            isLightTransportDef[unitDefID] = true
+            lightTransportUnitDefID[unitDefID] = true
         end
     elseif not unitDef.cantBeTransported then
-        if unitDef.mass >= 750  then
-            isHeavyLandUnitDef[unitDefID] = true
+        if unitDef.mass > 750  then
+            heavyPassengerUnitDefID[unitDefID] = true
         else
-            isLightLandUnitDef[unitDefID] = true
+            lightPassengerUnitDefID[unitDefID] = true
         end
 	end
 end
@@ -146,7 +148,8 @@ local function fifo_push(list, id, value)
 end
 local function fifo_pop(list)
     if not list.head then
-        error("list is empty")
+        --error("list is empty")
+        return nil, nil
     end
 
     local result = list.head
@@ -185,12 +188,65 @@ local function fifo_isEmpty(list)
     return not list.head
 end
 
-local function isHeavyTransport(unitDef)
-    if unitDef.transportMass > 750 then
-        return true
+local function passengerQueueIsEmpty(ferryRoute)
+    local emptyLightQueue = fifo_isEmpty(ferryRoute.lightPassengersWaiting)
+    local emptyHeavyQueue = fifo_isEmpty(ferryRoute.heavyPassengersWaiting)
+
+    return emptyLightQueue and emptyHeavyQueue
+end
+local function passengerQueuePickNextPassenger(ferryRoute, transportUnitID, isHeavyTransport)
+    -- We have two modes for this function: It can either be called with a transport that has already been selected
+    -- such as when a transport is done with earlier duty and is now free to pickup next passenger. Alternatievly,
+    -- this can be called to generally pop passenger queue and pick closest transport.
+
+    -- first we figure out if we have a heavy transport
+    local heavyTransport
+    if transportUnitID ~= nil then
+        if isHeavyTransport == nil then
+            local transportUnitDefID = Spring.GetUnitDefID(transportUnitID)
+            heavyTransport = heavyTransportUnitDefID[transportUnitDefID] or false
+        else
+            heavyTransport = isHeavyTransport
+        end
+    else
+        heavyTransport = ferryRoute.heavyTransportsReadyCount > 0
     end
 
-    return false
+    -- if we have heavy transport and heavy passengers, we pop heavy queue. otherwise we pop light queue.
+    local passengerUnitID, departure
+    if heavyTransport and (not fifo_isEmpty(ferryRoute.heavyPassengersWaiting)) then
+        passengerUnitID, departure = fifo_pop(ferryRoute.heavyPassengersWaiting)
+    else
+        passengerUnitID, departure = fifo_pop(ferryRoute.lightPassengersWaiting)
+    end
+
+    return passengerUnitID, departure
+end
+local function passengerQueueAddPassenger(ferryRoute, unitID, departure, isHeavyPassenger)
+    local heavyPassenger = isHeavyPassenger
+    if heavyPassenger == nil then
+        local passengerUnitDefID = Spring.GetUnitDefID(unitID)
+        heavyPassenger = heavyPassengerUnitDefID[passengerUnitDefID] or false
+    end
+
+    if heavyPassenger then
+        fifo_push(ferryRoute.heavyPassengersWaiting, unitID, departure)
+    else
+        fifo_push(ferryRoute.lightPassengersWaiting, unitID, departure)
+    end
+end
+local function passengerQueueRemovePassenger(ferryRoute, unitID, isHeavyPassenger)
+    local heavyPassenger = isHeavyPassenger
+    if heavyPassenger == nil then
+        local passengerUnitDefID = Spring.GetUnitDefID(unitID)
+        heavyPassenger = heavyPassengerUnitDefID[passengerUnitDefID] or false
+    end
+
+    if heavyPassenger then
+        fifo_remove(ferryRoute.heavyPassengersWaiting, unitID)
+    else
+        fifo_remove(ferryRoute.lightPassengersWaiting, unitID)
+    end
 end
 
 local function serversBusyCount(ferryRoute)
@@ -248,8 +304,13 @@ local function checkOverlappingZone(x, z, radius)
     return false
 end
 
-local function findClosestTransport(x, z, ferryRoute, remove)
+local function findClosestTransport(x, z, ferryRoute, remove, passengerUnitID)
     debugPrint("findClosestTransport")
+
+    local passengerUnitDefID = Spring.GetUnitDefID(passengerUnitID)
+    --local passengerUnitDef = UnitDefs[passengerUnitDefID]
+    --local heavyPassenger = isHeavyPassenger(passengerUnitDef)
+    local heavyPassenger = heavyPassengerUnitDefID[passengerUnitDefID] or false
 
     local function getDistanceSquared(x, z, transportID)
         local transportX, _, transportZ = Spring.GetUnitPosition(transportID)
@@ -257,24 +318,29 @@ local function findClosestTransport(x, z, ferryRoute, remove)
     end
 
     local closestRadiusSquared = -1
-    local closestTransportID = -1
+    local closestTransportUnitID = nil
     local entryToRemove = -1
 
     for i,unitID in ipairs(ferryRoute.serversReady) do
-        local currentRadiusSquared = getDistanceSquared(x, z, unitID)
-        if (closestRadiusSquared == -1) or (currentRadiusSquared < closestRadiusSquared) then
-            closestRadiusSquared = currentRadiusSquared
-            closestTransportID = unitID
-            entryToRemove = i
+        if (not heavyPassenger) or (myHeavyTransports[unitID] ~= nil) then
+            local currentRadiusSquared = getDistanceSquared(x, z, unitID)
+            if (closestRadiusSquared == -1) or (currentRadiusSquared < closestRadiusSquared) then
+                closestRadiusSquared = currentRadiusSquared
+                closestTransportUnitID = unitID
+                entryToRemove = i
+            end
         end
     end
 
     if remove and (entryToRemove > -1) then
         table.remove(ferryRoute.serversReady, entryToRemove)
-        debugPrint("Removed transport from ready: " .. closestTransportID)
+        if myHeavyTransports[closestTransportUnitID] then
+            ferryRoute.heavyTransportsReadyCount = ferryRoute.heavyTransportsReadyCount - 1
+        end
+        debugPrint("Removed transport from ready: " .. tostring(closestTransportUnitID))
     end
 
-    return closestTransportID
+    return closestTransportUnitID
 end
 
 local function findClosestDeparture(transportX, transportZ, ferryRoute)
@@ -628,7 +694,7 @@ local function transportReturnToDeparture(transportUnitID, departure, destinatio
 end
 
 local function passengerEligibleForFerryRoute(ferryRoute, unitDefID)
-    return isLightLandUnitDef[unitDefID] or (isHeavyLandUnitDef[unitDefID] and (ferryRoute.heavyTransportCount > 0))
+    return lightPassengerUnitDefID[unitDefID] or (heavyPassengerUnitDefID[unitDefID] and (ferryRoute.heavyTransportCount > 0))
 end
 
 local function createFerryRoute(x, z, radius, shift, createDestination)
@@ -651,9 +717,11 @@ local function createFerryRoute(x, z, radius, shift, createDestination)
         serversReady = {},
         serversBusy = {},
 
-        passengersWaiting = fifo_new(),
+        lightPassengersWaiting = fifo_new(),
+        heavyPassengersWaiting = fifo_new(),
 
         heavyTransportCount = heavyTransportsSelectedCount,
+        heavyTransportsReadyCount = 0,
 
         routeFinished = not shift,
     }
@@ -786,6 +854,9 @@ function addTransportToFerryRoute(ferryRoute, departure, unitID, removeFromOld)
     else
         -- transport is empty, ready to serve immediately
         table.insert(ferryRoute.serversReady, unitID)
+        if myHeavyTransports[unitID] then
+            ferryRoute.heavyTransportsReadyCount = ferryRoute.heavyTransportsReadyCount + 1
+        end
         local transportX, _, transportZ = Spring.GetUnitPosition(unitID)
         local departure = findClosestDeparture(transportX, transportZ, ferryRoute)
         -- TODO: figure out if the move command to departure is already queued (overlapping move command is a cancel)
@@ -810,6 +881,9 @@ function removeTransportFromFerryRoute(ferryRoute, unitID)
     for serverIndex,serverID in ipairs(ferryRoute.serversReady) do
         if serverID == unitID then
             table.remove(ferryRoute.serversReady, serverIndex)
+            if myHeavyTransports[unitID] then
+                ferryRoute.heavyTransportsReadyCount = ferryRoute.heavyTransportsReadyCount - 1
+            end
 
             debugPrint("Ready transport " .. tostring(unitID) .. " removed from route")
 
@@ -826,8 +900,10 @@ function removeTransportFromFerryRoute(ferryRoute, unitID)
                 local passengerUnitID = passengerTable[1]
                 local departure = passengerTable[2]
                 local unitX, _, unitZ = Spring.GetUnitPosition(passengerUnitID)
-                local newTransportID = findClosestTransport(unitX, unitZ, ferryRoute, true)
-                transportPickupPassenger(newTransportID, passengerUnitID, ferryRoute, departure)
+                local newTransportID = findClosestTransport(unitX, unitZ, ferryRoute, true, passengerUnitID)
+                if newTransportID ~= nil then
+                    transportPickupPassenger(newTransportID, passengerUnitID, ferryRoute, departure)
+                end
             end
         end
     end
@@ -893,8 +969,7 @@ local function addPassengerToDeparture(departure, unitID)
     if not passengerCommandQueue then
         local unitX, _, unitZ = Spring.GetUnitPosition(unitID)
         if inCircle(unitX, unitZ, departure) then
-            --table.insert(ferryRoute.passengersWaiting, { unitID, departure })
-            fifo_push(ferryRoute.passengersWaiting, unitID, departure)
+            passengerQueueAddPassenger(ferryRoute, unitID, departure)
             return true
         end
 
@@ -920,6 +995,9 @@ function removePassengerFromFerryRoute(passengerUnitID)
             if ferryRoute then
                 ferryRoute.serversBusy[transportUnitID] = nil
                 table.insert(ferryRoute.serversReady, transportUnitID)
+                if myHeavyTransports[transportUnitID] then
+                    ferryRoute.heavyTransportsReadyCount = ferryRoute.heavyTransportsReadyCount + 1
+                end
             end
         end
 
@@ -927,42 +1005,11 @@ function removePassengerFromFerryRoute(passengerUnitID)
         if departure then
             local ferryRoute = departure.ferryRoute
             debugPrint("Removing passenger from waiting: " .. tostring(passengerUnitID))
-            fifo_remove(ferryRoute.passengersWaiting, passengerUnitID)
-            --for i,passengerWaiting in ipairs(ferryRoute.passengersWaiting) do
-            --    local unitID = passengerWaiting[1]
-            --    if unitID == passengerUnitID then
-            --        table.remove(ferryRoute.passengersWaiting, i)
-            --        Spring.Echo("remove passengersWaiting line 821")
-            --        break
-            --    end
-            --end
+            passengerQueueRemovePassenger(ferryRoute, passengerUnitID)
         end
     end
 
     myPassengers[passengerUnitID] = nil
-
-    -- TODO: use table.removeFirst()
-    --local departurePassengersArriving = departure.passengersArriving
-    --for i,unitID in ipairs(departurePassengersArriving) do
-    --    if unitID == unitIDToRemove then
-    --        table.remove(departurePassengerArriving, i)
-    --        debugPrint("Arriving passenger " .. tostring(unitIDToRemove) .. " removed from departure")
-    --        return true
-    --    end
-    --end
-
-    --local departurePassengersWaiting = departure.passengersWaiting
-    --for i,unitID in pairs(departurePassengersWaiting) do
-    --    if unitID == passengerUnitID then
-    --        table.remove(departurePassengersWaiting, i)
-    --        debugPrint("Waiting passenger " .. tostring(unitIDToRemove) .. " removed from departure")
-    --        return true
-    --    end
-    --end
-
-    --debugPrint("Attempted to remove unknown passenger " .. tostring(unitIDToRemove) .. " from departure")
-
-    --return false
 end
 
 local function addFactoryRallyToDeparture(departure, unitID)
@@ -1167,12 +1214,23 @@ function widget:GameFrame(frameNum)
     --local checkGotReady = frameNum % 30 == 14
 
     for _,ferryRoute in ipairs(ferryRoutes) do
-        while (#ferryRoute.serversReady > 0) and (not fifo_isEmpty(ferryRoute.passengersWaiting)) do
-            local passengerUnitID, departure = fifo_pop(ferryRoute.passengersWaiting)
-            local unitX, unitY, unitZ = Spring.GetUnitPosition(passengerUnitID)
-            local transportUnitID = findClosestTransport(unitX, unitZ, ferryRoute, true)
-            ferryRoute.serversBusy[transportUnitID] = { passengerUnitID, departure }
-            transportPickupPassenger(transportUnitID, passengerUnitID, ferryRoute, departure)
+        local continue = true
+        while continue do
+            if #ferryRoute.serversReady == 0 then
+                continue = false
+            else
+                local passengerUnitID, departure = passengerQueuePickNextPassenger(ferryRoute)
+                if passengerUnitID == nil then
+                    continue = false
+                else
+                    local unitX, unitY, unitZ = Spring.GetUnitPosition(passengerUnitID)
+                    local transportUnitID = findClosestTransport(unitX, unitZ, ferryRoute, true, passengerUnitID)
+                    if transportUnitID ~= nil then
+                        ferryRoute.serversBusy[transportUnitID] = { passengerUnitID, departure }
+                        transportPickupPassenger(transportUnitID, passengerUnitID, ferryRoute, departure)
+                    end
+                end
+            end
         end
     end
 end
@@ -1208,14 +1266,18 @@ function widget:UnitCmdDone(unitID, unitDefID, unitTeam, cmdID, cmdParams, optio
         return
     end
 
+    local transportAssigned = false
     local ferryRoute = departure.ferryRoute
     if #ferryRoute.serversReady > 0 then
-        local transportID = findClosestTransport(unitX, unitZ, ferryRoute, true)
-        transportPickupPassenger(transportID, unitID, ferryRoute, departure)
+        local transportUnitID = findClosestTransport(unitX, unitZ, ferryRoute, true, unitID)
+        if transportUnitID ~= nil then
+            transportPickupPassenger(transportUnitID, unitID, ferryRoute, departure)
+            transportAssigned = true
+        end
         --myPassenger[2] = transportID
-    else
-        --table.insert(ferryRoute.passengersWaiting, { unitID, departure })
-        fifo_push(ferryRoute.passengersWaiting, unitID, departure)
+    end
+    if not transportAssigned then
+        passengerQueueAddPassenger(ferryRoute, unitID, departure)
     end
 end
 
@@ -1254,17 +1316,20 @@ function widget:UnitUnloaded(unitID, unitDefID, unitTeam, transportID, transport
         transportDropPassenger(transportID, nil, ferryRoute.destination, transporteeArray[1])
     else
         --local _, _, departure = table.removeFirst(ferryRoute.serversBusy, i)
-        if fifo_isEmpty(ferryRoute.passengersWaiting) then
-            local departure = ferryRoute.serversBusy[transportID][2]
-            ferryRoute.serversBusy[transportID] = nil
-            table.insert(ferryRoute.serversReady, transportID)
-
-            transportReturnToDeparture(transportID, departure, ferryRoute.destination)
-        else
-            local passengerUnitID, departure = fifo_pop(ferryRoute.passengersWaiting)
+        local returnDeparture = ferryRoute.serversBusy[transportID][2]
+        local passengerUnitID, departure = passengerQueuePickNextPassenger(ferryRoute, transportID)
+        if passengerUnitID ~= nil then
             local unitX, unitY, unitZ = Spring.GetUnitPosition(passengerUnitID)
             ferryRoute.serversBusy[transportID] = { passengerUnitID, departure }
             transportPickupPassenger(transportID, passengerUnitID, ferryRoute, departure)
+        else
+            ferryRoute.serversBusy[transportID] = nil
+            table.insert(ferryRoute.serversReady, transportID)
+            if myHeavyTransports[transportID] then
+                ferryRoute.heavyTransportsReadyCount = ferryRoute.heavyTransportsReadyCount + 1
+            end
+
+            transportReturnToDeparture(transportID, returnDeparture, ferryRoute.destination)
         end
     end
 end
@@ -1276,7 +1341,7 @@ function widget:MetaUnitAdded(unitID, unitDefID, unitTeam)
         if isTransportDef[unitDefID] then
             myTransports[unitID] = true
             local unitDef = UnitDefs[unitDefID]
-            if isHeavyTransport(unitDef) then
+            if heavyTransportUnitDefID[unitDefID] then
                 debugPrint("heavy transport added")
                 myHeavyTransports[unitID] = true
             else
