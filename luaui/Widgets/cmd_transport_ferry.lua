@@ -308,8 +308,6 @@ local function findClosestTransport(x, z, ferryRoute, remove, passengerUnitID)
     debugPrint("findClosestTransport")
 
     local passengerUnitDefID = Spring.GetUnitDefID(passengerUnitID)
-    --local passengerUnitDef = UnitDefs[passengerUnitDefID]
-    --local heavyPassenger = isHeavyPassenger(passengerUnitDef)
     local heavyPassenger = heavyPassengerUnitDefID[passengerUnitDefID] or false
 
     local function getDistanceSquared(x, z, transportID)
@@ -381,17 +379,6 @@ local function getSelectedTransports()
     return selectedTransports
 end
 
--- TODO: remove this?
-local function checkServerIsReady(ferryRoute, unitID)
-    for _,serverID in ipairs(ferryRoute.serversReady) do
-        if serverID == unitID then
-            return true
-        end
-    end
-
-    return false
-end
-
 local function getLastMoveAverage(transportUnitIDs)
     local function getTransportLastMoveCommand(unitID)
         local unitCommandQueue = Spring.GetUnitCommands(unitID, -1)
@@ -411,7 +398,6 @@ local function getLastMoveAverage(transportUnitIDs)
     local z = 0
     local count = 0
 
-    --for unitID,_ in pairs(transportUnitIDs) do
     for i = 1,#transportUnitIDs do
         local unitID = transportUnitIDs[i]
         local lastMoveX, lastMoveZ = getTransportLastMoveCommand(unitID)
@@ -625,7 +611,6 @@ local function transportPickupPassenger(transportUnitID, passengerUnitID, ferryR
     Spring.GiveOrderToUnit(transportUnitID, CMD_MOVE, { passengerX, passengerY + transportAboveUnit, passengerZ }, CMD_OPT_SHIFT)
     Spring.GiveOrderToUnit(transportUnitID, CMD_LOAD_UNITS, { passengerUnitID }, CMD_OPT_SHIFT)
 
-    --table.insert(ferryRoute.serversBusy, { transportUnitID, passengerUnitID, departure })
     ferryRoute.serversBusy[transportUnitID] = { passengerUnitID, departure }
     myPassengers[passengerUnitID][2] = transportUnitID
 end
@@ -687,10 +672,6 @@ end
 
 local function createFerryRoute(x, z, radius, shift, createDestination)
     debugPrint("createFerryRoute()")
-
-    -- TODO: do we need to remove transports from their earlier routes?
-
-    -- TODO: do we need to check if a route has no transport and should be removed?
 
     -- set ferry departure where last move command for transport or where transport is now
     local selectedTransports = getSelectedTransports()
@@ -795,11 +776,7 @@ local function joinFerryRoute(ferryRouteOld, ferryRouteNew, departureJoin)
     local newZone = addZone(ferryRouteOld, currentZone.x, currentZone.z, currentZone.radius, nil, departureJoin)
     addPreviousZones(newZone, currentZone, 0)
 
-    --for _,serverReady in ipairs(ferryRouteNew.serversReady) do
-    --    table.insert(ferryRouteOld.serversReady, serverReady)
-    --end
     for _,serverReady in ipairs(ferryRouteNew.serversReady) do
-        --removeTransportFromFerryRoute(ferryRouteNew, serverReady)
         addTransportToFerryRoute(ferryRouteOld, nil, serverReady, false)
     end
     -- TODO: move busy servers to new ferry route
@@ -858,7 +835,6 @@ end
 function removeTransportFromFerryRoute(ferryRoute, unitID)
     local checkServersBusy = true
 
-    -- TODO: use table.removeFirst()
     for serverIndex,serverID in ipairs(ferryRoute.serversReady) do
         if serverID == unitID then
             table.remove(ferryRoute.serversReady, serverIndex)
@@ -888,28 +864,6 @@ function removeTransportFromFerryRoute(ferryRoute, unitID)
             end
         end
     end
-
-    --if checkServersBusy then
-    --    for serverIndex,serverBusy in ipairs(ferryRoute.serversBusy) do
-    --        local serverUnitID = serverBusy[1]
-    --        local passengerUnitID = serverBusy[2]
-    --        if serverUnitID == unitID then
-    --            local unitX, _, unitZ = Spring.GetUnitPosition(passengerUnitID)
-    --            for _,departure in ipairs(ferryRoute.departures) do
-    --                if inCircle(passengerX, passengerZ, departure) then
-    --                    table.insert(ferryRoute.passengersWaiting, passengerID)
-    --                    break
-    --                end
-    --            end
-
-    --            table.remove(ferryRoute.serversBusy, serverIndex)
-
-    --            debugPrint("Busy transport " .. tostring(unitID) .. " removed from route")
-
-    --            break
-    --        end
-    --    end
-    --end
 
     myFerries[unitID] = nil
 
@@ -1019,24 +973,6 @@ function removeFactoryRallyFromDeparture(departure, unitID)
     factoryRallies[unitID] = nil
 end
 
---local function printCommand(unitID, cmdId, cmdParams, cmdOpts, cmdTag)
---    if cmdId == CMD_MOVE then
---        Spring.Echo("UnitCommand MOVE: unitID " .. tostring(unitID) .. ", x: " .. tostring(cmdParams[1]) .. ", y: " .. tostring(cmdParams[2]) .. ", z: " .. tostring(cmdParams[3]) .. ", shift: " .. tostring(cmdOpts.shift))
---    elseif cmdId == CMD_LOAD_UNITS then
---        Spring.Echo("UnitCommand LOAD: unitID " .. tostring(unitID) .. ", passenger: " .. tostring(cmdOpts[1]) .. ", shift: " .. tostring(cmdOpts.shift))
---    elseif cmdId == CMD_UNLOAD_UNIT then
---        Spring.Echo("UnitCommand UNLOAD: unitID " .. tostring(unitID) .. ", x: " .. tostring(cmdParams[1]) .. ", y: " .. tostring(cmdParams[2]) .. ", z: " .. tostring(cmdParams[3]) .. ", shift: " .. tostring(cmdOpts.shift))
---    else
---        Spring.Echo("UnitCommand unknown: unitID " .. tostring(unitID))
---    end
---end
-
---function widget:UnitCommand(unitID, unitDefID, unitTeam, cmdId, cmdParams, cmdOpts, cmdTag)
---    if not myTransports[unitID] then return end
---
---    printCommand(unitID, cmdId, cmdParams, cmdOpts, cmdTag)
---end
-
 local function printRoutingTables(ferryRoute)
     debugPrint("Printing routing tables for " .. tostring(#ferryRoute.zones) .. " zones")
     for _,zone in ipairs(ferryRoute.zones) do
@@ -1112,8 +1048,6 @@ function widget:CommandNotify(id, params, options)
                 end
             else -- not a ferry departure
                 if myPassengers[unitID] then
-                    --local departure = myPassengers[unitID][1]
-                    --local ferryRoute = departure.ferryRoute
                     removePassengerFromFerryRoute(unitID)
                 elseif myFerries[unitID] then
                     local ferryRoute = myFerries[unitID]
@@ -1176,19 +1110,8 @@ function widget:Update(dt)
 end
 
 function widget:GameFrame(frameNum)
-    --if printCommandQueueGameFrame and printCommandQueueGameFrame == frameNum then
-    --    local cmdQueue = Spring.GetCommandQueue(printCommandQueueUnitID, -1) or {}
-    --    if #cmdQueue > 0 then
-    --        for _,cmdInQueue in ipairs(cmdQueue) do
-    --            printCommand(printCommandQueueUnitID, cmdInQueue.id, cmdInQueue.params, cmdInQueue.options, cmdInQueue.tag)
-    --        end
-    --    end
-
-    --    printCommandQueueGameFrame = nil
-    --    printCommandQueueUnitID = nil
-    --end
-
-    --local checkGotReady = frameNum % 30 == 14
+    local check = frameNum % 30 == 66
+    if not check then return end
 
     for _,ferryRoute in ipairs(ferryRoutes) do
         local continue = true
@@ -1251,7 +1174,6 @@ function widget:UnitCmdDone(unitID, unitDefID, unitTeam, cmdID, cmdParams, optio
             transportPickupPassenger(transportUnitID, unitID, ferryRoute, departure)
             transportAssigned = true
         end
-        --myPassenger[2] = transportID
     end
     if not transportAssigned then
         passengerQueueAddPassenger(ferryRoute, unitID, departure)
@@ -1292,7 +1214,6 @@ function widget:UnitUnloaded(unitID, unitDefID, unitTeam, transportID, transport
         -- transport is not empty
         transportDropPassenger(transportID, nil, ferryRoute.destination, transporteeArray[1])
     else
-        --local _, _, departure = table.removeFirst(ferryRoute.serversBusy, i)
         local returnDeparture = ferryRoute.serversBusy[transportID][2]
         local passengerUnitID, departure = passengerQueuePickNextPassenger(ferryRoute, transportID)
         if passengerUnitID ~= nil then
