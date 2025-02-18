@@ -43,8 +43,6 @@ test("Transport Ferry Heavy Transport Create Ferry Route", function ()
 
 	assert.is.equal(1, #widget.ferryRoutes, "Creating a ferry route with set ferry adds one item to global table of ferry routes")
 
-	assert.table_has_fields({"heavyTransportCount"}, widget.ferryRoutes[1])
-
     assert.ferryRoute(1).has.serversReady(1, "Ferry route has one transport ready to serve passengers")
     assert.ferryRoute(1).has.heavyServersReady(1, "Ferry route has one heavy transport ready to serve passengers")
 end)

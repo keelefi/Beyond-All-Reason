@@ -392,18 +392,6 @@ local function checkServerIsReady(ferryRoute, unitID)
     return false
 end
 
-local function heavyTransportsIncludedCount(transportUnitIDs)
-    local heavyTransportCount = 0
-    for i = 1,#transportUnitIDs do
-        local unitID = transportUnitIDs[i]
-        if myHeavyTransports[unitID] then
-            heavyTransportCount = heavyTransportCount + 1
-        end
-    end
-
-    return heavyTransportCount
-end
-
 local function getLastMoveAverage(transportUnitIDs)
     local function getTransportLastMoveCommand(unitID)
         local unitCommandQueue = Spring.GetUnitCommands(unitID, -1)
@@ -694,7 +682,7 @@ local function transportReturnToDeparture(transportUnitID, departure, destinatio
 end
 
 local function passengerEligibleForFerryRoute(ferryRoute, unitDefID)
-    return lightPassengerUnitDefID[unitDefID] or (heavyPassengerUnitDefID[unitDefID] and (ferryRoute.heavyTransportCount > 0))
+    return lightPassengerUnitDefID[unitDefID] or heavyPassengerUnitDefID[unitDefID]
 end
 
 local function createFerryRoute(x, z, radius, shift, createDestination)
@@ -708,8 +696,6 @@ local function createFerryRoute(x, z, radius, shift, createDestination)
     local selectedTransports = getSelectedTransports()
     local departureX, departureZ = getLastMoveAverage(selectedTransports)
 
-    local heavyTransportsSelectedCount = heavyTransportsIncludedCount(selectedTransports)
-
     ferryRoutes[#ferryRoutes+1] = {
         zones = {},
         destination = nil,
@@ -720,7 +706,6 @@ local function createFerryRoute(x, z, radius, shift, createDestination)
         lightPassengersWaiting = fifo_new(),
         heavyPassengersWaiting = fifo_new(),
 
-        heavyTransportCount = heavyTransportsSelectedCount,
         heavyTransportsReadyCount = 0,
 
         routeFinished = not shift,
@@ -863,10 +848,6 @@ function addTransportToFerryRoute(ferryRoute, departure, unitID, removeFromOld)
         --Spring.GiveOrderToUnit(unitID, CMD_MOVE, { departure.x, departure.y, departure.z }, CMD_OPT_SHIFT)
     end
 
-    if myHeavyTransports[unitID] then
-        ferryRoute.heavyTransportCount = ferryRoute.heavyTransportCount + 1
-    end
-
     debugPrint("Transport " .. tostring(unitID) .. " added to route")
 
     myFerries[unitID] = ferryRoute
@@ -929,10 +910,6 @@ function removeTransportFromFerryRoute(ferryRoute, unitID)
     --        end
     --    end
     --end
-
-    if myHeavyTransports[unitID] then
-        ferryRoute.heavyTransportCount = ferryRoute.heavyTransportCount - 1
-    end
 
     myFerries[unitID] = nil
 
