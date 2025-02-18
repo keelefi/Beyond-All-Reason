@@ -80,14 +80,15 @@ local mouseOverDeparture = nil
 local selectedUnits
 local myTeam = Spring.GetLocalTeamID()
 
-local isTransportDef = {}
+local transportUnitDefID = {}
 local lightTransportUnitDefID = {}
 local heavyTransportUnitDefID = {}
 local lightPassengerUnitDefID = {}
 local heavyPassengerUnitDefID = {}
+local factoryUnitDefID = {}
 for unitDefID, unitDef in pairs(UnitDefs) do
 	if unitDef.isTransport and unitDef.canFly and unitDef.transportCapacity > 0 then
-		isTransportDef[unitDefID] = true
+		transportUnitDefID[unitDefID] = true
         if unitDef.transportMass and unitDef.transportMass > 750 then
             heavyTransportUnitDefID[unitDefID] = true
         else
@@ -99,6 +100,8 @@ for unitDefID, unitDef in pairs(UnitDefs) do
         else
             lightPassengerUnitDefID[unitDefID] = true
         end
+    elseif unitDef.isFactory then
+        factoryUnitDefID[unitDefID] = true
 	end
 end
 
@@ -943,36 +946,6 @@ function removePassengerFromFerryRoute(passengerUnitID)
     myPassengers[passengerUnitID] = nil
 end
 
-local function addFactoryRallyToDeparture(departure, unitID)
-    if factoryRallies[unitID] then
-        if factoryRallies[unitID] == departure then
-            debugPrint("Adding factory rally " .. tostring(unitID) .. " failed: Factory rally was already added to the departure")
-            return false
-        end
-
-        removeFactoryRallyFromDeparture(factoryRallies[unitID], unitID)
-    end
-
-    table.insert(departure.factoryRallies, unitID)
-    factoryRallies[unitID] = departure
-
-    debugPrint("Factory rally " .. tostring(unitID) .. " added to departure")
-
-    return true
-end
-
-function removeFactoryRallyFromDeparture(departure, unitID)
-    for i,factoryID in ipairs(departure.factoryRallies) do
-        if factoryID == unitID then
-            table.remove(departure.factoryRallies, i)
-            debugPrint("Factory rally " .. tostring(unitID) .. " removed from departure")
-            break
-        end
-    end
-
-    factoryRallies[unitID] = nil
-end
-
 local function printRoutingTables(ferryRoute)
     debugPrint("Printing routing tables for " .. tostring(#ferryRoute.zones) .. " zones")
     for _,zone in ipairs(ferryRoute.zones) do
@@ -1031,9 +1004,7 @@ function widget:CommandNotify(id, params, options)
             local ferryRoute, zone = getFerryZone(cmdX, cmdZ)
             if ferryRoute and (zone ~= ferryRoute.destination) then
                 local departure = zone
-                --local ferryRoute = ferryRoutes[ferryRouteIndex]
                 local unitDefID = Spring.GetUnitDefID(unitID)
-                local unitDef = UnitDefs[unitDefID]
                 -- if land units
                 if passengerEligibleForFerryRoute(ferryRoute, unitDefID) then
                     -- units are assigned to be picked up
@@ -1043,8 +1014,8 @@ function widget:CommandNotify(id, params, options)
                     -- add transport to ferry route
                     addTransportToFerryRoute(ferryRoute, departure, unitID, true)
                 -- if land factory
-                elseif unitDef.isFactory then   -- TODO: check if factory produces land units
-                    addFactoryRallyToDeparture(departure, unitID)
+                elseif factoryUnitDefID[unitDefID] then  -- TODO: check if factory produces land units
+                    factoryRallies[unitID] = departure
                 end
             else -- not a ferry departure
                 if myPassengers[unitID] then
@@ -1053,8 +1024,7 @@ function widget:CommandNotify(id, params, options)
                     local ferryRoute = myFerries[unitID]
                     removeTransportFromFerryRoute(ferryRoute, unitID)
                 elseif factoryRallies[unitID] then
-                    local departure = factoryRallies[unitID]
-                    removeFactoryRallyFromDeparture(departure, unitID)
+                    factoryRallies[unitID] = nil
                 end
             end
         end
@@ -1236,7 +1206,7 @@ function widget:MetaUnitAdded(unitID, unitDefID, unitTeam)
     debugPrint("MetaUnitAdded, unitID: " .. tostring(unitID))
 
     if unitTeam == myTeam then
-        if isTransportDef[unitDefID] then
+        if transportUnitDefID[unitDefID] then
             myTransports[unitID] = true
             local unitDef = UnitDefs[unitDefID]
             if heavyTransportUnitDefID[unitDefID] then
@@ -1246,6 +1216,8 @@ function widget:MetaUnitAdded(unitID, unitDefID, unitTeam)
                 debugPrint("light transport added")
                 myLightTransports[unitID] = true
             end
+        elseif factoryUnitDefID[unitDefID] then
+            -- TODO: check if move command to departure
         end
     end
 end
