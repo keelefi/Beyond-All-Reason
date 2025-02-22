@@ -81,11 +81,11 @@ test("Transport Ferry Passenger Dies While Transport Is Arriving", function ()
     assert.ferryRoute(1).has.serversBusy(0, "Ferry route has no transports busy serving passengers")
     assert.ferryRoute(1).has.passengersWaiting(1, "Ferry route has one passenger waiting")
 
-    -- wait one frame for the next GameFrame() to kick in for transport to get next assignment
-    Test.waitFrames(1)
+    -- wait for the next GameFrame() to kick in for transport to get next assignment
+    Test.waitFrames(30)
 
     -- transport is ordered to pickup other pawn
-    assert.ferryRoute(1).has.serversReady(0, "Ferry route has no transports ready to serve passengers")
+    assert.ferryRoute(1).has.no.serversReady("Ferry route has no transports ready to serve passengers")
     assert.ferryRoute(1).has.serversBusy(1, "Ferry route has one transport busy serving passengers")
     assert.ferryRoute(1).has.no.passengersWaiting("Ferry route has no passengers waiting")
 

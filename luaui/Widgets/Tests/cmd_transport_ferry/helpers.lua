@@ -134,12 +134,18 @@ local obj = {
 		--end)
 	end,
 
-	spawnUnit = function(unitType, offsetX, offsetZ)
+	spawnUnit = function(unitType, offsetX, offsetZ, unitFacing)
 		local myTeamID = Spring.GetMyTeamID()
 		local x = Game.mapSizeX / 2
 		local z = Game.mapSizeZ / 2
 		local y = Spring.GetGroundHeight(x, z)
-		local facing = 1  -- TODO: make facing configurable
+
+		local facing = nil
+        if unitFacing ~= nil then
+            facing = unitFacing
+        else
+            facing = 1
+        end
 
 		local unitDefName
 		if unitType then
@@ -183,6 +189,21 @@ local obj = {
 			Spring.GiveOrderToUnit(locals.unitID, CMD.MOVE, { locals.x, locals.y, locals.z }, locals.cmdOpts1)
 		end)
 		widget:CommandNotify(CMD.MOVE, { x, y, z, r }, cmdOpts2)
+	end,
+
+	unitFromFactory = function(factoryID, unitDef)
+        local unitDefID
+        if unitDef == nil then
+            unitDefID = UnitDefNames["armpw"].id
+        elseif type(unitDef) == "string" then
+            unitDefID = UnitDefNames[unitDef].id
+        else
+            unitDefID = unitDef
+        end
+
+		SyncedRun(function (locals)
+			Spring.GiveOrderToUnit(locals.factoryID, CMD.INSERT, { 0, -locals.unitDefID, CMD.OPT_ALT + CMD.OPT_INTERNAL }, CMD.OPT_ALT + CMD.OPT_CTRL)
+		end)
 	end,
 }
 

@@ -1080,7 +1080,7 @@ function widget:Update(dt)
 end
 
 function widget:GameFrame(frameNum)
-    local check = frameNum % 30 == 66
+    local check = frameNum % 30 == 9
     if not check then return end
 
     for _,ferryRoute in ipairs(ferryRoutes) do
